@@ -12,8 +12,15 @@ sharing the screen. `docs/spec.md` is the contract — read it before touching a
 
 ## State as of 2026-08-23
 
+- **This repo is public** (`matewishkey/mwk-ghost-pointer`). Nothing secret has ever been in
+  it — history was scanned before publishing. Keep it that way: no account ids, no tokens, no
+  keys, not even in a comment or a test fixture.
 - Relay live at `wss://ghost-pointer-relay.mergodon.workers.dev`, 12/12 probe checks passing
   over the internet, p50 17 ms RTT from Brisbane.
+- That relay URL is now in a public README and the endpoint has no auth, so anyone can join
+  any room code and use the account as a WebSocket relay. Fine at this scale (~$0.007/room-hour)
+  and correct for an MVP. The fix when it matters is a signed join token from a `/token`
+  endpoint, not obscurity — don't bother before there are real users.
 - `node tools/probe.mjs <ws-url>` is the regression test. Run it after any relay change.
   It exits non-zero on failure. Local: `cd relay && npm run dev`, then probe `ws://127.0.0.1:8787`.
 - App: nothing yet. M0 (the macOS permission spike) is the next thing and everything is gated
