@@ -56,6 +56,26 @@ useful build; this is the one mate tests with a guest.
 
 **M3 — feel.** Interpolation between samples, trail tuning, tray icon, reconnect, hotkey config.
 
+## Secrets
+
+**This repo is public and holds zero secrets. Keep it that way.** Nothing encrypted, nothing
+"just for local dev", not in a comment, not in a test fixture, not in a commit message.
+
+- **The encrypted operator store is the single source of truth** for every credential this
+  project ever needs — SOPS + age, in a private repo, outside this tree. The machine-level
+  conventions name it. Never a second copy anywhere: a copy drifts, and a drifted credential
+  is worse than none.
+- **The Worker gets secrets pushed, never committed:** `wrangler secret put <NAME>`, with the
+  value read out of the store. `.dev.vars` is the local equivalent and is gitignored.
+- **Signing material** (Apple Developer cert, App Store Connect key, notarisation password,
+  any Windows cert) goes in the store and reaches CI as GitHub Actions secrets. It never
+  touches the working tree — `.gitignore` blocks the usual extensions as a backstop, but the
+  backstop is not the policy.
+- **Nothing to store yet.** As of 2026-08-23 this project genuinely has no secrets: the relay
+  is unauthenticated by design and its only binding is the `ROOM` Durable Object. The first
+  real ones will be macOS signing/notarisation credentials, then a join-token HMAC if the
+  relay ever gets auth. Create the store entry when the first one exists, not before.
+
 ## Conventions
 
 - Cloudflare account is shared across every project — scope anything destructive by name.

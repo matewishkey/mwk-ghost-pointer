@@ -4,3 +4,19 @@ target/
 .wrangler/
 .DS_Store
 *.log
+
+# Secrets never live in this repo. These patterns are a backstop, not the policy —
+# see CLAUDE.md § Secrets.
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+!.env.example
+
+# macOS / Windows signing material
+*.p12
+*.pem
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile

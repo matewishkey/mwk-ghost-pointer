@@ -1,7 +1,7 @@
 # Research findings — 2026-08-23
 
 Concept validation and architecture review done before any code. Full write-up with the
-reasoning: <https://work.l/mer-mwk-ghost-pointer/2026-08-23_concept-research>
+reasoning: kept with the operator, outside this repo.
 
 ## Does this exist? No.
 
