@@ -1,8 +1,11 @@
-# app/ — Tauri desktop app
+# app/ — Ghost Pointer desktop app
 
-Not started. Built on the Mac; see `../CLAUDE.md` for the build order and `../docs/spec.md`
-for the wire protocol it has to speak.
+Not started. See `CLAUDE.md` in this directory for the brief, `../docs/spec.md` for the wire
+protocol.
 
-M0 is a throwaway spike, not the start of this app: prove the transparent click-through
-always-on-top window, global cursor polling and modifier-hold detection on macOS, and record
-which permission dialogs appear. Everything here is designed around that answer.
+**One directory, both platforms.** This builds macOS and Windows from the same source;
+platform differences live behind `#[cfg(target_os = "…")]` in `src-tauri/src/platform/`.
+There is deliberately no `mac/` or `windows/` sibling.
+
+Relay is already live and needs no configuration:
+`wss://ghost-pointer-relay.mergodon.workers.dev`

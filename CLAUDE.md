@@ -10,6 +10,57 @@ sharing the screen. `docs/spec.md` is the contract — read it before touching a
 - **`app/`** — the Tauri desktop app. **Not started.** Built on mate's Mac, macOS first,
   Windows after it works.
 
+### There is ONE app directory, not one per OS
+
+`app/` builds **both** macOS and Windows from the same source. Do not create `mac/` and
+`windows/` siblings — that is two apps, two implementations of the wire protocol, and
+guaranteed divergence, which is the exact thing Tauri exists to avoid.
+
+Platform differences live *inside* `app/`, behind conditional compilation:
+
+    app/src/                     shared UI (overlay canvas, settings, room join)
+    app/src-tauri/src/
+      main.rs                    shared
+      platform/mod.rs            trait: cursor position, hotkey, overlay window
+      platform/macos.rs          #[cfg(target_os = "macos")]
+      platform/windows.rs        #[cfg(target_os = "windows")]
+
+The macOS session fills in `macos.rs` and defines the trait. Windows later fills in
+`windows.rs` against that same trait, and nothing else has to change. If a platform needs
+something the trait can't express, widen the trait — don't fork the app.
+
+## Two machines, one repo
+
+The Linux dev box owns the relay; a Mac owns the app. Same repo, same `main` branch. They
+almost never collide because they touch disjoint directories — the rules exist for the
+handful of files that are shared.
+
+**Directory ownership**
+
+| Path | Owner | Other machine |
+|---|---|---|
+| `relay/`, `tools/` | Linux box | read-only |
+| `docs/spec.md` | Linux box — it's the protocol contract | read-only; file an issue to change it |
+| `app/` | Mac | read-only |
+| `README.md`, `docs/research.md`, `CLAUDE.md` | either | pull first, say so in the commit |
+
+**Rules**
+
+1. **Both work directly on `main`.** No feature branches — disjoint directories make them
+   ceremony without benefit. `git config pull.rebase true` is set in this repo so history
+   stays linear and nobody generates merge commits.
+2. **Pull before you start, push when you stop.** The real failure mode here is not a merge
+   conflict, it's the Mac working two hours against a stale spec. Pushing often is what
+   prevents it.
+3. **`docs/spec.md` is the contract between the two halves and only the relay side changes
+   it.** If the app needs a protocol change, `gh issue create` against this repo and say what
+   and why. Same instinct as the cross-repo rule — don't reach into the other side's lane.
+4. **Only the Linux box runs `wrangler deploy`.** One Worker name, so two deployers means
+   whoever ran last silently wins. The Mac develops against the deployed URL, never redeploys it.
+5. **Coordinate through GitHub Issues**, not through the docs. Both machines have `gh`. An
+   issue is the only channel that reaches the other session, since neither can see the other's
+   conversation.
+
 ## State as of 2026-08-23
 
 - **This repo is public** (`matewishkey/mwk-ghost-pointer`). Nothing secret has ever been in
