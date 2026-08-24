@@ -36,6 +36,17 @@ case "hotkey":
     let up = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_ANSI_J), keyDown: false)!
     up.flags = flags; up.post(tap: .cghidEventTap)
     print("released")
+case "click":
+    // top-left-origin global points
+    let x = Double(a[2]) ?? 0, y = Double(a[3]) ?? 0
+    let pt = CGPoint(x: x, y: y)
+    print("clicking \(Int(x)),\(Int(y)) …")
+    let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)!
+    down.post(tap: .cghidEventTap)
+    Thread.sleep(forTimeInterval: 0.06)
+    let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)!
+    up.post(tap: .cghidEventTap)
+    print("clicked")
 default:
-    print("usage: presskey option [secs] | presskey hotkey"); exit(2)
+    print("usage: presskey option [secs] | presskey hotkey | presskey click <x> <y>"); exit(2)
 }

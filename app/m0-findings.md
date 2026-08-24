@@ -53,6 +53,23 @@ external `screencapture` grabs the screen, and a separate PNG decoder reads that
 points in from each corner all rendered, the top pair 8 points from the physical top of the
 screen.
 
+**Click-through is proven, not assumed** (added 2026-08-25, after the first write-up left it
+open). Tested without touching any other app: the spike puts a solid window of its *own* at
+`.floating` level under its *own* overlay, and a click is posted at that point.
+
+| Pass | `ignoresMouseEvents` | target window | overlay | |
+|---|---|---|---|---|
+| 1 | `true` | **1 hit** | 0 | click passed straight through |
+| 2 (control) | `false` | 0 | **1 hit** | overlay caught it — the test can tell the states apart |
+
+Two instrument bugs had to be fixed before this meant anything, and both would silently produce
+"no hits" forever: `RunLoop.run(mode:before:)` returns as soon as it services one source rather
+than blocking for the duration, and pumping the runloop does not deliver mouse events to windows
+at all — `NSApplication` must dequeue and `sendEvent` them. A view also needs
+`acceptsFirstMouse` to see a click that arrives while its app is inactive, or AppKit eats it as
+an activation click. None of these matter to the shipped app (its overlay is always
+click-through) but all three will bite anyone writing a test like this.
+
 ⚠️ **`CGWindowList` under-reports the overlay's bounds — don't debug against it.** It reports
 `2510×1412 at (25,14)` for a window whose frame is the full `2560×1440 at (0,0)`, while pixels
 prove full coverage. Believe the pixels.
@@ -130,12 +147,6 @@ This is the Carbon API underneath Tauri's `global-shortcut` plugin, so
 
 ## Open, and honestly open
 
-- **Click-through is asserted, not proven.** `ignoresMouseEvents = true` is set and is standard
-  macOS, but my behavioural hit-test (`NSWindow.windowNumber(at:belowWindowWithWindowNumber:)`)
-  **failed its own positive control** — it could not see the overlay even with click-through
-  disabled, so it proves nothing either way. Closing it needs a real click posted over the
-  overlay, which wants a screen that is not mid-livestream. **5-second manual check at the top
-  of M1**: run the overlay, click something underneath it, see if the click lands.
 - **Synthetic vs hardware modifiers.** The ⌥ events were posted by another process, not typed.
   The TCC gate is on the observer so the permission answer holds, but hardware confirmation is
   free the first time anyone runs the sender by hand.
@@ -150,6 +161,7 @@ This is the Carbon API underneath Tauri's `global-shortcut` plugin, so
     ./build.sh          # compiles + ad-hoc signs M0Spike.app
     ./run-clean.sh      # per-phase clean-room permission runs -> clean-<phase>.log
     ./run-deliver.sh    # modifier-delivery test -> deliver.log
+    ./run-clickthru.sh  # click-through, with control -> clickthru.log
 
 `build.sh` re-signs, which resets the app's TCC identity — so the clean room stays clean on
 every rebuild. Grant this spike nothing; the whole point is that it never needs anything.

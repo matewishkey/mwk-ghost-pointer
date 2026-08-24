@@ -49,6 +49,8 @@ final class DotView: NSView {
     var extras: [NSPoint] = []      // view coords, fixed markers
     var armed = true
     override var isFlipped: Bool { false }
+    override func mouseDown(with e: NSEvent) { overlayHits += 1 }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func draw(_ r: NSRect) {
         NSColor.clear.set(); r.fill()
         for e in extras {
@@ -69,6 +71,19 @@ final class DotView: NSView {
         core.lineWidth = 2
         core.stroke()
     }
+}
+
+final class TargetView: NSView {
+    override func draw(_ r: NSRect) {
+        NSColor(calibratedRed: 0.15, green: 0.5, blue: 0.9, alpha: 1).setFill(); r.fill()
+    }
+    override func mouseDown(with e: NSEvent) { targetHits += 1 }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+final class KeyableWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
 final class UnconstrainedWindow: NSWindow {
@@ -114,6 +129,8 @@ final class Overlay {
 
 // ---------------------------------------------------------------- globals for C callbacks
 
+var targetHits = 0
+var overlayHits = 0
 var hotkeyPresses = 0
 var tapFlagEvents = 0
 var monitorFlagEvents = 0
@@ -317,6 +334,57 @@ func phaseControlIM() {
     checkTCC("Input Monitoring request")
 }
 
+// Click-through, tested behaviourally and WITHOUT touching any other app: the click lands on
+// a window this same process owns, sitting under this same process's overlay. Two passes, the
+// second of which is the control — with click-through off, the overlay must swallow the click,
+// otherwise the test cannot tell the two states apart and proves nothing.
+func phaseClickThrough() {
+    hdr("Q1b. click-through — behavioural, self-contained")
+    guard let screen = NSScreen.screens.first else { return }
+    let side: CGFloat = 360
+    let rect = NSRect(x: screen.frame.midX - side/2, y: screen.frame.midY - side/2, width: side, height: side)
+    let target = KeyableWindow(contentRect: rect, styleMask: [.borderless], backing: .buffered, defer: false)
+    target.contentView = TargetView()
+    target.level = .floating                  // above other apps, below our overlay
+    target.ignoresMouseEvents = false
+    target.orderFrontRegardless()
+
+    let o = Overlay(on: screen)               // level 1000, ignoresMouseEvents = true
+    o.place(NSPoint(x: rect.midX, y: rect.midY))
+    say("    target window (ours) at \(Int(rect.minX)),\(Int(rect.minY)) \(Int(side))x\(Int(side)), level .floating")
+    say("    overlay above it at level \(o.window.level.rawValue), ignoresMouseEvents=true")
+    let q = CGPoint(x: rect.midX, y: screen.frame.origin.y + screen.frame.height - rect.midY)
+    say("CLICKAT \(Int(q.x)) \(Int(q.y))")
+    say("    >>> PASS 1 (click-through ON) — click now")
+    pumpApp(2.2)
+    say("    PASS 1 result: target=\(targetHits) overlay=\(overlayHits)  -> \(targetHits > 0 && overlayHits == 0 ? "CLICK PASSED THROUGH" : "no")")
+
+    targetHits = 0; overlayHits = 0
+    o.window.ignoresMouseEvents = false
+    say("    >>> PASS 2 (control: click-through OFF) — click now")
+    pumpApp(2.2)
+    say("    PASS 2 result: target=\(targetHits) overlay=\(overlayHits)  -> \(overlayHits > 0 && targetHits == 0 ? "OVERLAY BLOCKED IT (control OK)" : "CONTROL FAILED — test proves nothing")")
+    checkTCC("click-through test")
+    target.orderOut(nil)
+}
+
+func pump(_ seconds: Double) {
+    let deadline = Date().addingTimeInterval(seconds)
+    while Date() < deadline { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+}
+
+/// Pumping the runloop is NOT enough to deliver mouse events to windows — AppKit only routes
+/// them when NSApplication dequeues and sends them, which normally happens inside app.run().
+func pumpApp(_ seconds: Double) {
+    let deadline = Date().addingTimeInterval(seconds)
+    while Date() < deadline {
+        if let e = NSApp.nextEvent(matching: .any, until: Date().addingTimeInterval(0.02),
+                                   inMode: .default, dequeue: true) {
+            NSApp.sendEvent(e)
+        }
+    }
+}
+
 func describe(_ f: NSEvent.ModifierFlags) -> String {
     var p: [String] = []
     if f.contains(.command) { p.append("⌘cmd") }
@@ -348,6 +416,7 @@ if want("modpoll")  { phaseModifierPoll() }
 if want("hotkey")   { phaseHotkey() }
 if want("tap")      { phaseEventTap() }
 if want("monitor")  { phaseGlobalMonitor() }
+if only == "clickthru" { phaseClickThrough() }
 if only == "control-ax" { phaseControlAX() }
 if only == "control-im" { phaseControlIM() }
 let noOverlay = CommandLine.arguments.contains("--no-overlay")

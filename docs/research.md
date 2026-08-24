@@ -99,6 +99,9 @@ Method, evidence and the traps are in **`app/m0-findings.md`** — read that, th
   grants, which settles the contradictory search results. This is what Tauri's global-shortcut
   plugin uses underneath.
 
+- **`ignoresMouseEvents` click-through works** (2026-08-25). Behaviourally tested with a control:
+  click-through on, the click reaches the window beneath; off, the overlay catches it.
+
 Net effect: **neither role needs any permission on macOS.** The sender was the open risk and it
 came back clean.
 
@@ -109,9 +112,6 @@ Do not treat these as settled — they need real hardware or an hour of digging:
 - Whether Tauri can emit an MSIX package for the Microsoft Store. It ships `.msi` and NSIS
   `.exe` natively.
 - Whether the Mac App Store sandbox permits whichever global-hotkey path gets chosen.
-- Whether `ignoresMouseEvents` click-through actually passes clicks through. The property is
-  set and it is standard macOS, but M0's behavioural test failed its own positive control, so
-  it is asserted, not proven. Closing it is one click at the top of M1.
 - Whether plain `.keyDown` events (as opposed to bare `.flagsChanged`) are TCC-protected.
   Untested, and the app does not need them.
 - Any of the above on Intel, or on macOS older than 26.6.1.

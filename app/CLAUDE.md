@@ -60,9 +60,13 @@ to ask for, on either side.
 
 Then M1 (loopback on one machine), M2 (two machines, calibration + display picker), M3 (feel).
 
-**First thing in M1**, because M0 could not close it: post a real click over the overlay and
-confirm `ignoresMouseEvents` actually passes it through. M0's hit-test failed its own positive
-control, so click-through is asserted, not proven.
+M0 is fully closed — click-through was the one loose end and it is now proven behaviourally
+(`m0-spike/run-clickthru.sh`), with a control.
+
+## M1 needs a Rust toolchain — this Mac has none
+
+`rustc`/`cargo`/`rustup` are all absent (node 24 and npm are present via mise). Tauri needs
+Rust, so installing it is step one of M1, not a surprise mid-build.
 
 ## Known trap, do not solve yet
 
