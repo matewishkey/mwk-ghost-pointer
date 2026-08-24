@@ -32,20 +32,37 @@ No auth, no key, nothing to configure. Join a room with
 Sanity-check the relay any time with `node ../tools/probe.mjs wss://ghost-pointer-relay.mergodon.workers.dev`
 — 13 checks, exits non-zero on failure. If those pass, the relay is fine and the bug is here.
 
-## Start at M0 — and it is throwaway
+## M0 is done — start at M1
 
-Do not scaffold the app first. M0 is a spike that answers three questions about macOS, and
-its only deliverable is **written-down answers**, including which permission dialogs appear:
+The spike answered all three questions on 2026-08-24 (macOS 26.6.1, Apple silicon). Full
+write-up in **`m0-findings.md`**; `../docs/research.md` has been corrected. Headline:
 
-1. Can a transparent, always-on-top, click-through window draw a dot over other apps?
-2. Can global cursor position be polled without a permission prompt?
-3. Does modifier-hold detection need Input Monitoring or Accessibility?
+1. Transparent always-on-top click-through window drawing over other apps — **yes, no permission.**
+   Covers the full display including under the menu bar.
+2. Global cursor position — **yes, no permission.** `NSEvent.mouseLocation`, 60 Hz, exact.
+3. Modifier-hold — **no permission needed, if you POLL.** `NSEvent.modifierFlags` 10/10; a
+   `CGEvent` tap 0/10 and needs Input Monitoring. `RegisterEventHotKey` also fires with nothing
+   granted, so Tauri's global-shortcut plugin is clear too.
 
-`../docs/research.md` § "Explicitly NOT verified" lists what is expected but untested. When
-you have real answers, correct that file — several entries there are guesses and are labelled
-as such.
+**No permission dialogs appear on any path the app needs.** First-run onboarding has nothing
+to ask for, on either side.
+
+### What that changes
+
+- **Poll, don't tap.** Cursor position and modifier state come from the same 60 Hz tick. Never
+  reach for a `CGEvent` tap — and never treat a non-nil `tapCreate` as proof of permission, it
+  returns non-nil and then delivers nothing.
+- **Tap-to-arm vs hold-to-point is now a free choice**, not a permissions dodge. Decide on feel,
+  and it stays mate's call.
+- **Units.** macOS window/cursor APIs speak **points**, not device pixels, and `NSEvent` uses a
+  bottom-left origin while `CGEvent` uses top-left. Get this wrong and the ghost lands in a
+  mirrored position. Issue #5 proposes the `geo` message carry `backingScaleFactor`.
 
 Then M1 (loopback on one machine), M2 (two machines, calibration + display picker), M3 (feel).
+
+**First thing in M1**, because M0 could not close it: post a real click over the overlay and
+confirm `ignoresMouseEvents` actually passes it through. M0's hit-test failed its own positive
+control, so click-through is asserted, not proven.
 
 ## Known trap, do not solve yet
 

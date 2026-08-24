@@ -83,16 +83,35 @@ a webview.
 and GNOME has refused layer-shell ([wl-find-cursor](https://github.com/cjacker/wl-find-cursor/)
 documents the workaround and its limits). Dropped from scope 2026-08-23.
 
+## Verified on hardware — M0, 2026-08-24
+
+Three of the entries below were guesses; they are now measured on macOS 26.6.1 / Apple silicon.
+Method, evidence and the traps are in **`app/m0-findings.md`** — read that, this is the summary.
+
+- **Polling `NSEvent.mouseLocation` is permission-free.** Confirmed, no dialog. Note it returns
+  **points, bottom-left origin**; `CGEvent(source:nil).location` returns points, top-left origin.
+  Neither returns device pixels.
+- **Modifier-hold detection is permission-free *if you poll*.** `NSEvent.modifierFlags` saw
+  10/10 synthesised ⌥ transitions from an app holding no TCC grants. A `CGEvent` tap saw
+  **0/10** — and `tapCreate` still returned non-nil, so a nil-check is a false pass. Expected
+  "yes, needs permission"; the real answer is "depends entirely on the mechanism".
+- **`RegisterEventHotKey` raises no Accessibility prompt.** It registered *and fired* with zero
+  grants, which settles the contradictory search results. This is what Tauri's global-shortcut
+  plugin uses underneath.
+
+Net effect: **neither role needs any permission on macOS.** The sender was the open risk and it
+came back clean.
+
 ## Explicitly NOT verified
 
 Do not treat these as settled — they need real hardware or an hour of digging:
 
-- Whether polling `NSEvent.mouseLocation` is permission-free on current macOS. Expected yes,
-  untested. **This is M0.**
-- Whether modifier-hold detection needs Input Monitoring or Accessibility. Expected yes,
-  untested. **This is M0.**
-- Whether `RegisterEventHotKey` (what the Tauri global-shortcut plugin uses) triggers an
-  Accessibility prompt. Search results were contradictory.
 - Whether Tauri can emit an MSIX package for the Microsoft Store. It ships `.msi` and NSIS
   `.exe` natively.
 - Whether the Mac App Store sandbox permits whichever global-hotkey path gets chosen.
+- Whether `ignoresMouseEvents` click-through actually passes clicks through. The property is
+  set and it is standard macOS, but M0's behavioural test failed its own positive control, so
+  it is asserted, not proven. Closing it is one click at the top of M1.
+- Whether plain `.keyDown` events (as opposed to bare `.flagsChanged`) are TCC-protected.
+  Untested, and the app does not need them.
+- Any of the above on Intel, or on macOS older than 26.6.1.

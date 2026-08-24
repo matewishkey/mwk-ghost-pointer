@@ -1,0 +1,7 @@
+# build products and run artefacts — the spike is source-only in git
+m0
+pixel
+presskey
+M0Spike.app/
+*.log
+*.png

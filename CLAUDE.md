@@ -75,8 +75,11 @@ handful of files that are shared.
   endpoint, not obscurity — don't bother before there are real users.
 - `node tools/probe.mjs <ws-url>` is the regression test. Run it after any relay change.
   It exits non-zero on failure. Local: `cd relay && npm run dev`, then probe `ws://127.0.0.1:8787`.
-- App: nothing yet. M0 (the macOS permission spike) is the next thing and everything is gated
-  on it.
+- App: **M0 done 2026-08-24, no app code yet.** The macOS permission spike came back clean —
+  **neither role needs any permission, and no dialog appears on any path the app uses.**
+  Sender-side polling (`NSEvent.mouseLocation` + `NSEvent.modifierFlags`) and
+  `RegisterEventHotKey` all work with zero TCC grants. Evidence and method: `app/m0-findings.md`;
+  instrument: `app/m0-spike/` (throwaway, delete once M1 stands alone). M1 (loopback) is next.
 
 ## Decisions already made — don't relitigate
 
