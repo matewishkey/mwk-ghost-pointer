@@ -21,6 +21,9 @@ const CODE_RE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
 /** Runaway guard. Well above the 60 Hz a sane client sends. */
 const MAX_MSG_PER_SEC = 200;
 
+/** Durable Object placement regions. Anything else is a 400, not a runtime error. */
+const HINTS = ["oc", "apac", "weur", "eeur", "wnam", "enam", "sam", "afr", "me"] as const;
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -51,8 +54,12 @@ export default {
     // idFromName places the object near whoever connects first. For a session
     // that is always hosted from the same place, pass ?hint=oc (or apac/weur/
     // eeur/wnam/enam/sam/afr/me) to pin it near the host instead.
-    const id = env.ROOM.idFromName(code);
     const hint = url.searchParams.get("hint");
+    if (hint && !HINTS.includes(hint as (typeof HINTS)[number])) {
+      return json({ error: "bad_location_hint", allowed: HINTS }, 400);
+    }
+
+    const id = env.ROOM.idFromName(code);
     const stub = hint
       ? env.ROOM.get(id, { locationHint: hint as DurableObjectLocationHint })
       : env.ROOM.get(id);
@@ -72,7 +79,11 @@ type Member = {
 };
 
 export class Room extends DurableObject<Env> {
-  /** Sliding 1-second message counters, keyed by member id. Rebuilt after hibernation. */
+  /**
+   * Per-member message counters over a fixed 1-second window that resets wholesale at the
+   * boundary (tumbling, not sliding — a burst straddling the boundary can briefly pass 2x).
+   * Good enough for a runaway guard. Rebuilt after hibernation.
+   */
   private rate = new Map<string, { since: number; n: number }>();
 
   async fetch(request: Request): Promise<Response> {
@@ -129,8 +140,11 @@ export class Room extends DurableObject<Env> {
         this.broadcast({ ...msg, id: me.id }, me.id);
         return;
 
-      // A viewer announcing which display it is drawing on.
+      // A viewer announcing which display it is drawing on. Viewers only: a pointer has no
+      // display to announce, and letting one set `geo` would poison the aim-rect fit that
+      // other pointers read out of `hello.peers`.
       case "geo": {
+        if (me.role !== "view") return;
         const g = msg.g as Member["geo"];
         if (!g || typeof g.w !== "number" || typeof g.h !== "number") return;
         me.geo = { w: g.w, h: g.h, label: String(g.label ?? "").slice(0, 60) };

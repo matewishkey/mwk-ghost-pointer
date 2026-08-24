@@ -90,7 +90,7 @@ pointer.onkind = (m) => m.k === "pong" && rtt.push(Date.now() - m.t);
 
 for (let i = 0; i < SAMPLES; i++) {
   pointer.send(JSON.stringify({ k: "p", x: i / SAMPLES, y: 0.5, a: 1, t: Date.now() }));
-  if (i % 10 === 0) pointer.send(JSON.stringify({ k: "ping", t: Date.now() }));
+  pointer.send(JSON.stringify({ k: "ping", t: Date.now() }));
   await new Promise((r) => setTimeout(r, 1000 / 60));
 }
 await new Promise((r) => setTimeout(r, 500));
@@ -99,6 +99,13 @@ check("pointer samples delivered", got.length === SAMPLES, `${got.length}/${SAMP
 check("sender id stamped", got.every((m) => m.id === pHello.you.id));
 check("payload intact", got[0]?.x === 0 && got.at(-1)?.x === (SAMPLES - 1) / SAMPLES);
 check("no echo to sender", !pointer.inbox.some((m) => m.k === "p"));
+
+// --- geo is viewer-only -------------------------------------------------------
+const geoLeak = [];
+viewer.onkind = (m) => m.k === "geo" && geoLeak.push(m);
+pointer.send(JSON.stringify({ k: "geo", g: { w: 999, h: 999, label: "pointer-should-not-set-this" } }));
+await new Promise((r) => setTimeout(r, 300));
+check("geo from a pointer is ignored", geoLeak.length === 0, `${geoLeak.length} leaked`);
 
 // --- leave ------------------------------------------------------------------
 pointer.close();
@@ -109,8 +116,12 @@ viewer.close();
 // --- latency ----------------------------------------------------------------
 rtt.sort((a, b) => a - b);
 const p = (q) => rtt[Math.min(rtt.length - 1, Math.floor(rtt.length * q))];
+// A percentile over too few points is just the max wearing a hat. Say so rather than imply
+// precision we do not have.
+const pct = rtt.length >= 20 ? `p50 ${p(0.5)}ms   p95 ${p(0.95)}ms   ` : "";
 console.log(
-  `\n  round-trip over ${rtt.length} pings:  min ${rtt[0]}ms   p50 ${p(0.5)}ms   p95 ${p(0.95)}ms   max ${rtt.at(-1)}ms`,
+  `\n  round-trip over ${rtt.length} pings:  min ${rtt[0]}ms   ${pct}max ${rtt.at(-1)}ms` +
+    (rtt.length < 20 ? "   (too few for percentiles)" : ""),
 );
 
 console.log(failures === 0 ? "\n  ALL CHECKS PASSED\n" : `\n  ${failures} CHECK(S) FAILED\n`);

@@ -9,7 +9,7 @@ short fading trail. No screen capture, no remote control, no input injection. It
 
 macOS first, Windows next. Linux is out of scope — Wayland blocks global pointer position by design.
 
-## Status — 2026-08-23
+## Status — 2026-08-24
 
 | Piece | State |
 |---|---|
@@ -30,7 +30,7 @@ rules are in scope.
 
     relay/            Cloudflare Worker, one Durable Object per room code   (Linux box owns)
     app/              Tauri desktop app — macOS AND Windows, one codebase   (Mac owns)
-    tools/probe.mjs   relay regression test — 12 checks, exits non-zero on failure
+    tools/probe.mjs   relay regression test — 13 checks, exits non-zero on failure
     docs/spec.md      wire protocol, coordinate mapping, MVP scope
     docs/research.md  concept validation, cost model, platform findings + what's unverified
 
@@ -43,7 +43,7 @@ rules are in scope.
     node tools/probe.mjs ws://127.0.0.1:8787             # test local
     node tools/probe.mjs wss://ghost-pointer-relay.mergodon.workers.dev
 
-Last run against production: 12/12 checks passed, p50 17 ms round-trip from Brisbane.
+Last run against production: 13/13 checks passed, p50 17-18 ms / p95 22-36 ms round-trip from Brisbane.
 
 ## Next
 

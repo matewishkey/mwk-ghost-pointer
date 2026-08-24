@@ -30,7 +30,7 @@ No auth, no key, nothing to configure. Join a room with
 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. Full message list in `../docs/spec.md`.
 
 Sanity-check the relay any time with `node ../tools/probe.mjs wss://ghost-pointer-relay.mergodon.workers.dev`
-— 12 checks, exits non-zero on failure. If those pass, the relay is fine and the bug is here.
+— 13 checks, exits non-zero on failure. If those pass, the relay is fine and the bug is here.
 
 ## Start at M0 — and it is throwaway
 

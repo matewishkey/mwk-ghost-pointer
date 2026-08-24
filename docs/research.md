@@ -1,4 +1,4 @@
-# Research findings — 2026-08-23
+# Research findings — 2026-08-23 (cost + latency figures corrected 2026-08-24)
 
 Concept validation and architecture review done before any code. Full write-up with the
 reasoning: kept with the operator, outside this repo.
@@ -32,22 +32,35 @@ share, not an OBS→Twitch pipeline. So the concern is largely moot. It would co
 product were ever aimed at high-latency broadcast streaming; worth remembering, not worth
 designing around now.
 
-Relay latency measured live: p50 17 ms, p95 87 ms round-trip, Brisbane → Cloudflare → back.
+Relay latency measured live, 120 pings per run, three runs, Brisbane → Cloudflare → back:
+**p50 17-18 ms, p95 22-36 ms** (2026-08-24). Quote the range — a single run is not the number. An earlier figure of
+"p95 87 ms" was wrong methodology, not a slower network — the probe sent only 12 pings, over
+which `p(0.95)` resolves to the maximum. It now pings every sample and refuses to print
+percentiles below 20 points.
 
 ## Cost
 
 From the [Durable Objects pricing docs](https://developers.cloudflare.com/durable-objects/platform/pricing/):
-incoming WebSocket messages bill 20:1, outgoing are free, duration bills against a fixed
-128 MB allocation for as long as a socket is accepted. $0.15/M requests, $12.50/M GB-s,
-with 1M requests + 400,000 GB-s included on the $5 Workers Paid plan.
+incoming WebSocket messages bill 20:1, outgoing are free, and duration bills against a fixed
+128 MB allocation while the object is active and **not eligible for hibernation** — the relay
+uses the Hibernation API, so a room with connected-but-idle sockets stops accruing duration.
+$0.15/M requests, $12.50/M GB-s, with 1M requests + 400,000 GB-s included on the $5 Workers
+Paid plan.
 
 ```
 one room, one hour, 60 Hz:
   216,000 msgs in  /20  = 10,800 requests  = $0.0016
   3600 s × 0.125 GB     =    450 GB-s      = $0.0056
                                      total ≈ $0.007/hour
-  → ~888 room-hours/month before exceeding the included allowance
+
+included allowance, and which one runs out first:
+  requests  1,000,000 / 10,800  =  ~92 room-hours   ← binds
+  duration    400,000 /    450  =  ~889 room-hours
 ```
+
+**Requests bind roughly 10x sooner than duration.** An earlier version of this doc said ~889
+by dividing only the duration allowance — worth re-checking whichever line you are about to
+quote, because the two differ by an order of magnitude.
 
 **Implication for pricing:** throttling a free tier saves nothing. If tiers ever ship, sell
 them on feel, not on hosting cost. The line item that would eventually grow is duration

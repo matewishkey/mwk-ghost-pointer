@@ -42,7 +42,8 @@ handful of files that are shared.
 | `relay/`, `tools/` | Linux box | read-only |
 | `docs/spec.md` | Linux box — it's the protocol contract | read-only; file an issue to change it |
 | `app/` | Mac | read-only |
-| `README.md`, `docs/research.md`, `CLAUDE.md` | either | pull first, say so in the commit |
+| `app/CLAUDE.md`, `app/README.md` | Mac — they live in `app/` | read-only |
+| root `README.md`, `docs/research.md`, root `CLAUDE.md` | either | pull first, say so in the commit |
 
 **Rules**
 
@@ -61,13 +62,13 @@ handful of files that are shared.
    issue is the only channel that reaches the other session, since neither can see the other's
    conversation.
 
-## State as of 2026-08-23
+## State as of 2026-08-24
 
 - **This repo is public** (`matewishkey/mwk-ghost-pointer`). Nothing secret has ever been in
   it — history was scanned before publishing. Keep it that way: no account ids, no tokens, no
   keys, not even in a comment or a test fixture.
-- Relay live at `wss://ghost-pointer-relay.mergodon.workers.dev`, 12/12 probe checks passing
-  over the internet, p50 17 ms RTT from Brisbane.
+- Relay live at `wss://ghost-pointer-relay.mergodon.workers.dev`, 13/13 probe checks passing
+  over the internet, p50 17-18 ms / p95 22-36 ms RTT from Brisbane (range across runs, not one measurement).
 - That relay URL is now in a public README and the endpoint has no auth, so anyone can join
   any room code and use the account as a WebSocket relay. Fine at this scale (~$0.007/room-hour)
   and correct for an MVP. The fix when it matters is a signed join token from a `/token`

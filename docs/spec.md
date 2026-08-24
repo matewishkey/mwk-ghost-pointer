@@ -47,25 +47,36 @@ Rules:
 
 ## Wire protocol
 
-WebSocket, JSON, one message per line. At 60 Hz a sample is ~60 bytes — about 3.5 KB/s.
+WebSocket, JSON, one object per frame. At 60 Hz a sample is ~60 bytes — about 3.5 KB/s.
 Binary packing is a later optimisation with no reason to do it now.
 
 **Connect:** `wss://<relay>/r/<CODE>?role=point|view&name=<label>[&hint=<region>]`
 
 `<CODE>` is 6 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no I/O/0/1 — they get misread
-when someone reads a code aloud on a call). Anything else → HTTP 400.
+when someone reads a code aloud on a call). Anything else → HTTP 400. **Codes are
+case-insensitive** — the relay uppercases before validating, so `prbe27` and `PRBE27` are the
+same room.
+
+**Before changing the length or alphabet, know the tradeoff.** 6 chars over a 32-char
+alphabet is 32⁶ ≈ 1.07 billion combinations. The endpoint is unauthenticated, so the code is
+the only thing keeping strangers out — but the realistic risk is *griefing* (someone drawing
+a ghost cursor on your guest's screen), not data theft, because the payload is only
+coordinates. One-in-a-billion per guess against a room that exists for minutes is a non-issue.
+The 6-char length is a deliberate usability choice: the code gets read aloud on a call.
+Lengthening it trades that away for entropy that isn't the binding constraint — the real fix,
+if it ever matters, is a signed join token (tracked in issue #4).
 
 `hint` optionally pins the room's Durable Object to a region (`oc`, `apac`, `weur`, `eeur`,
-`wnam`, `enam`, `sam`, `afr`, `me`). Without it the object is created near whoever connects
-first. Worth setting to `oc` if mate is always the host.
+`wnam`, `enam`, `sam`, `afr`, `me`); anything else → HTTP 400. Without it the object is
+created near whoever connects first. Worth setting to `oc` if the host is always in Brisbane.
 
 ### Client → server
 
 | Message | Meaning |
 |---|---|
-| `{"k":"p","x":0.51,"y":0.33,"a":1,"t":1724...}` | Pointer sample. `x`/`y` normalised, `a` = 1 visible / 0 fading out, `t` = sender's `Date.now()`. Fanned out to everyone else. |
-| `{"k":"geo","g":{"w":3024,"h":1964,"label":"Built-in"}}` | Viewer announcing its target display. Cached per socket and replayed to late joiners. |
-| `{"k":"ping","t":1724...}` | Latency probe. Answered directly, never fanned out. |
+| `{"k":"p","x":0.51,"y":0.33,"a":1,"t":1787529600000}` | Pointer sample. `x`/`y` normalised, `a` = 1 visible / 0 fading out, `t` = sender's `Date.now()`. Fanned out to everyone else. |
+| `{"k":"geo","g":{"w":3024,"h":1964,"label":"Built-in"}}` | Viewer announcing its target display. Cached per socket and replayed to late joiners. **Viewers only** — the relay drops `geo` from a pointer. |
+| `{"k":"ping","t":1787529600000}` | Latency probe. Answered directly, never fanned out. |
 
 ### Server → client
 
@@ -97,13 +108,15 @@ so idle rooms stop billing duration.
 Deployed: `wss://ghost-pointer-relay.mergodon.workers.dev`
 Verify: `node tools/probe.mjs wss://ghost-pointer-relay.mergodon.workers.dev`
 
-Measured 2026-08-23 from the Brisbane LAN: p50 17 ms round-trip, p95 87 ms. One-way
+Measured 2026-08-24 from the Brisbane LAN, 120 pings per run, three runs: p50 **17-18 ms**,
+p95 **22-36 ms**. Quote the range, not one run — it moves by tens of ms. One-way
 sender→viewer is roughly half that. Negligible against any screen share.
 
 Cost, from [the pricing docs](https://developers.cloudflare.com/durable-objects/platform/pricing/):
 incoming WebSocket messages bill 20:1, duration bills against a fixed 128 MB. One room at
-full 60 Hz works out around **$0.007/hour**. Rate-limiting a free tier saves nothing —
-if tiers happen, sell them on feel, not on hosting cost.
+full 60 Hz works out around **$0.007/hour**, and the included allowance covers ~92 room-hours
+a month (requests bind before duration — see `docs/research.md` § Cost). Rate-limiting a free
+tier saves nothing at this scale — if tiers happen, sell them on feel, not on hosting cost.
 
 ## MVP scope
 
@@ -129,7 +142,5 @@ Verified during research; sources in `docs/research.md`.
 
 ## Known store trap — do not solve yet
 
-Tauri needs the `macOSPrivateApi` flag for transparent webview windows, and private API use
-means automatic Mac App Store rejection. Notarised distribution outside the store is fine.
-The fix is contained: draw the overlay in a native `NSWindow` via `objc2-app-kit` instead of
-a webview, keep the webview for settings. Do that once the concept is proven, not before.
+Tauri's `macOSPrivateApi` flag means automatic Mac App Store rejection. Deferred deliberately;
+full detail and the contained fix live in `docs/research.md` § Platform findings and issue #3.
