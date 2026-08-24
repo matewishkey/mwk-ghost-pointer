@@ -5,6 +5,9 @@ so the claims there can be re-run rather than believed. **Do not build on it, do
 delete it once M1 stands on its own.**
 
     ./build.sh        # compile + ad-hoc sign M0Spike.app
+    ./run-clean.sh    # one process per phase -> clean-<phase>.log
+    ./run-deliver.sh  # modifier-delivery test -> deliver.log
+    ./run-clickthru.sh  # click-through, with control -> clickthru.log
 
 ## Two-machine test rig (added 2026-08-25)
 
@@ -25,9 +28,6 @@ landed on screen point `640,1080` on a 2560x1440 display, confirmed by pixel.
 read — that is the app's job. And it assumes normalised `y = 0` means **top**; `docs/spec.md`
 does not state the origin (issue #5). Both ends here agree, so it works; if the spec settles
 the other way, one line changes in each.
-
-    ./run-clean.sh    # one process per phase -> clean-<phase>.log
-    ./run-deliver.sh  # modifier-delivery test -> deliver.log
 
 ## The one idea worth keeping
 
