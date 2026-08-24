@@ -47,6 +47,8 @@ func checkTCC(_ what: String) {
 final class DotView: NSView {
     var dot = NSPoint.zero          // view coords
     var extras: [NSPoint] = []      // view coords, fixed markers
+    var trail: [(p: NSPoint, t: Date)] = []   // view coords + when it arrived
+    var showTrail = false
     var armed = true
     override var isFlipped: Bool { false }
     override func mouseDown(with e: NSEvent) { overlayHits += 1 }
@@ -56,6 +58,17 @@ final class DotView: NSView {
         for e in extras {
             NSColor(calibratedRed: 1, green: 0.15, blue: 0.35, alpha: 0.95).setFill()
             NSBezierPath(ovalIn: NSRect(x: e.x - 9, y: e.y - 9, width: 18, height: 18)).fill()
+        }
+        if showTrail {
+            let now = Date()
+            for s in trail {
+                let age = now.timeIntervalSince(s.t)
+                if age > 0.6 { continue }
+                let f = 1.0 - (age / 0.6)              // 600 ms fade, per spec
+                NSColor(calibratedRed: 1, green: 0.15, blue: 0.35, alpha: 0.45 * f).setFill()
+                let r = 3 + 6 * f
+                NSBezierPath(ovalIn: NSRect(x: s.p.x - r, y: s.p.y - r, width: r*2, height: r*2)).fill()
+            }
         }
         let radius: CGFloat = 11
         // outer glow ring so it reads over any background
@@ -396,6 +409,102 @@ func describe(_ f: NSEvent.ModifierFlags) -> String {
     return p.isEmpty ? "(none)" : p.joined(separator: "+")
 }
 
+// ---------------------------------------------------------------- viewer
+
+let RELAY = "wss://ghost-pointer-relay.mergodon.workers.dev"
+
+final class GhostViewer: NSObject, URLSessionWebSocketDelegate {
+    let overlay: Overlay
+    var task: URLSessionWebSocketTask!
+    var samples = 0
+    var lastLog = Date()
+
+    init(overlay: Overlay) { self.overlay = overlay; super.init() }
+
+    func connect(room: String) {
+        var c = URLComponents(string: "\(RELAY)/r/\(room)")!
+        c.queryItems = [URLQueryItem(name: "role", value: "view"),
+                        URLQueryItem(name: "name", value: "mac-spike")]
+        let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        task = session.webSocketTask(with: c.url!)
+        task.resume()
+        say("    connecting to \(c.url!.absoluteString)")
+        receive()
+    }
+
+    func urlSession(_ s: URLSession, webSocketTask: URLSessionWebSocketTask,
+                    didOpenWithProtocol p: String?) {
+        let f = overlay.screen.frame
+        let geo: [String: Any] = ["k": "geo",
+                                  "g": ["w": Int(f.width), "h": Int(f.height),
+                                        "label": overlay.screen.localizedName]]
+        send(geo)
+        say("    CONNECTED — announced geo \(Int(f.width))x\(Int(f.height)) points")
+    }
+
+    func urlSession(_ s: URLSession, webSocketTask: URLSessionWebSocketTask,
+                    didCloseWith code: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        say("    socket closed, code \(code.rawValue)")
+    }
+
+    func send(_ obj: [String: Any]) {
+        guard let d = try? JSONSerialization.data(withJSONObject: obj),
+              let s = String(data: d, encoding: .utf8) else { return }
+        task.send(.string(s)) { if let e = $0 { print("send error \(e)") } }
+    }
+
+    func receive() {
+        task.receive { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let msg):
+                if case .string(let text) = msg { DispatchQueue.main.async { self.handle(text) } }
+                self.receive()
+            case .failure(let e):
+                DispatchQueue.main.async { say("    socket error: \(e.localizedDescription)") }
+            }
+        }
+    }
+
+    func handle(_ text: String) {
+        guard let d = text.data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let k = o["k"] as? String else { return }
+        switch k {
+        case "hello":
+            let peers = (o["peers"] as? [[String: Any]])?.count ?? 0
+            say("    hello — \(peers) peer(s) already in the room")
+        case "join":
+            say("    join: \(o["role"] ?? "?") \(o["name"] ?? "")")
+        case "leave":
+            say("    leave: \(o["id"] ?? "?")")
+        case "p":
+            guard let x = o["x"] as? Double, let y = o["y"] as? Double else { return }
+            let a = (o["a"] as? Int) ?? 1
+            draw(x: x, y: y, visible: a == 1)
+        default: break
+        }
+    }
+
+    /// normalised 0..1, ORIGIN TOP-LEFT (assumption — see issue #5), to Cocoa screen point
+    func draw(x: Double, y: Double, visible: Bool) {
+        let f = overlay.screen.frame
+        let cx = f.minX + CGFloat(min(max(x, 0), 1)) * f.width
+        let cy = f.maxY - CGFloat(min(max(y, 0), 1)) * f.height
+        overlay.view.armed = visible
+        overlay.view.showTrail = true
+        let local = NSPoint(x: cx - f.origin.x, y: cy - f.origin.y)
+        overlay.view.trail.append((local, Date()))
+        if overlay.view.trail.count > 120 { overlay.view.trail.removeFirst(overlay.view.trail.count - 120) }
+        overlay.place(NSPoint(x: cx, y: cy))
+        samples += 1
+        if Date().timeIntervalSince(lastLog) > 2 {
+            say("    \(samples) samples drawn — latest \(String(format: "%.3f,%.3f", x, y)) -> \(Int(cx)),\(Int(cy))")
+            lastLog = Date()
+        }
+    }
+}
+
 // ---------------------------------------------------------------- main
 
 let app = NSApplication.shared
@@ -434,6 +543,21 @@ if mode == "probe" {
     say("    global-monitor flagsChanged \(monitorFlagEvents)")
     say("    final TCC: \(TCC.now().line)")
     exit(0)
+}
+
+if mode == "view" {
+    let room = positional.count > 1 ? positional[1].uppercased() : "GHSTPT"
+    hdr("viewer mode — room \(room)")
+    guard let screen = NSScreen.screens.first else { exit(1) }
+    let o = Overlay(on: screen)
+    o.view.showTrail = true
+    say("    overlay on \(screen.localizedName) \(Int(screen.frame.width))x\(Int(screen.frame.height)) points")
+    let v = GhostViewer(overlay: o)
+    v.connect(room: room)
+    // keep the trail fading even when no samples arrive
+    let t = Timer(timeInterval: 1.0/60.0, repeats: true) { _ in o.view.needsDisplay = true }
+    RunLoop.current.add(t, forMode: .common)
+    app.run()
 }
 
 // live: follow the cursor, count modifier events, report continuously

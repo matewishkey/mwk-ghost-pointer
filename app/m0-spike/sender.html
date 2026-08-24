@@ -1,0 +1,116 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ghost Pointer — test sender</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+         background:#0f1115; color:#e6e8ec; display:flex; flex-direction:column; height:100dvh; }
+  header { padding:12px 16px; border-bottom:1px solid #232733; display:flex; gap:16px;
+           align-items:center; flex-wrap:wrap; }
+  h1 { font-size:15px; margin:0; font-weight:600; }
+  .dot { width:9px; height:9px; border-radius:50%; background:#f2445c; display:inline-block; }
+  #status { color:#8b93a7; }
+  #status.on { color:#4ade80; }
+  input { background:#171a21; border:1px solid #2c3140; color:inherit; border-radius:6px;
+          padding:6px 9px; font:inherit; width:8em; text-transform:uppercase; }
+  button { background:#f2445c; border:0; color:#fff; border-radius:6px; padding:7px 14px;
+           font:inherit; font-weight:600; cursor:pointer; }
+  button.off { background:#2c3140; }
+  #pad { flex:1; margin:16px; border:2px dashed #2c3140; border-radius:10px; position:relative;
+         cursor:crosshair; overflow:hidden; }
+  #pad.armed { border-color:#f2445c; border-style:solid; }
+  #hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+          text-align:center; color:#6b7385; pointer-events:none; padding:24px; }
+  #echo { position:absolute; width:22px; height:22px; margin:-11px 0 0 -11px; border-radius:50%;
+          background:#f2445c; box-shadow:0 0 0 6px rgba(242,68,92,.25); pointer-events:none;
+          display:none; }
+  footer { padding:8px 16px 16px; color:#6b7385; font-size:13px;
+           font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+</style>
+
+<header>
+  <span class="dot"></span>
+  <h1>Ghost Pointer — test sender</h1>
+  <label>room <input id="room" value="GHSTPT" maxlength="6" spellcheck="false"></label>
+  <button id="go">connect</button>
+  <span id="status">idle</span>
+</header>
+
+<div id="pad"><div id="hint">Connect, then move your pointer in here.<br>
+  This rectangle stands in for the aim rect — the region of your screen showing the other
+  machine's desktop.</div><div id="echo"></div></div>
+
+<footer id="log">—</footer>
+
+<script>
+// Throwaway test harness. Speaks the same wire protocol as docs/spec.md so the real app can be
+// checked against something that is definitely not itself.
+const RELAY = "wss://ghost-pointer-relay.mergodon.workers.dev";
+const $ = s => document.querySelector(s);
+const pad = $("#pad"), echo = $("#echo"), statusEl = $("#status"), log = $("#log");
+let ws = null, sent = 0, lastSend = 0, pending = null, rttMs = null;
+
+function setStatus(t, on) { statusEl.textContent = t; statusEl.classList.toggle("on", !!on); }
+
+$("#go").onclick = () => ws ? disconnect() : connect();
+
+function connect() {
+  const room = $("#room").value.trim().toUpperCase();
+  if (!/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(room)) {
+    setStatus("bad room code — 6 chars, no I O 0 1"); return;
+  }
+  setStatus("connecting…");
+  ws = new WebSocket(`${RELAY}/r/${room}?role=point&name=browser`);
+  ws.onopen = () => {
+    setStatus(`connected to ${room}`, true);
+    $("#go").textContent = "disconnect"; $("#go").classList.add("off");
+    pad.classList.add("armed");
+    setInterval(() => { if (ws?.readyState === 1) ws.send(JSON.stringify({k:"ping",t:Date.now()})); }, 2000);
+  };
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.k === "pong") rttMs = Date.now() - m.t;
+    if (m.k === "hello") {
+      const viewers = (m.peers || []).filter(p => p.role === "view");
+      setStatus(viewers.length ? `connected — ${viewers.length} viewer(s)` : "connected — no viewer yet", true);
+    }
+    if (m.k === "join" && m.role === "view") setStatus("viewer joined", true);
+    if (m.k === "leave") setStatus("a peer left", true);
+  };
+  ws.onclose = () => { setStatus("disconnected"); reset(); };
+  ws.onerror = () => setStatus("socket error");
+}
+
+function disconnect() { ws?.close(); }
+function reset() {
+  ws = null; pad.classList.remove("armed"); echo.style.display = "none";
+  $("#go").textContent = "connect"; $("#go").classList.remove("off");
+}
+
+pad.addEventListener("pointermove", e => {
+  const r = pad.getBoundingClientRect();
+  // normalised inside the pad, ORIGIN TOP-LEFT, clamped — see spec "Clamp to 0..1"
+  const x = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1);
+  const y = Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1);
+  echo.style.display = "block";
+  echo.style.left = (e.clientX - r.left) + "px";
+  echo.style.top = (e.clientY - r.top) + "px";
+  pending = { x, y };
+});
+
+pad.addEventListener("pointerleave", () => { pending = null; });
+
+// send on a 60 Hz tick, and only when the pointer actually moved
+setInterval(() => {
+  if (!pending || ws?.readyState !== 1) return;
+  const { x, y } = pending; pending = null;
+  ws.send(JSON.stringify({ k:"p", x:+x.toFixed(4), y:+y.toFixed(4), a:1, t:Date.now() }));
+  sent++;
+}, 1000/60);
+
+setInterval(() => {
+  log.textContent = `sent ${sent} samples` + (rttMs !== null ? ` · relay rtt ${rttMs} ms` : "");
+}, 500);
+</script>
