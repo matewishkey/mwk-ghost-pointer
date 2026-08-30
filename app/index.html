@@ -2,42 +2,84 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
-    <script type="module" src="/src/main.ts" defer></script>
+    <title>Ghost Pointer</title>
   </head>
-
   <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
+    <div class="drag"></div>
 
-      <div class="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/src/assets/vite.svg" class="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img
-            src="/src/assets/tauri.svg"
-            class="logo tauri"
-            alt="Tauri logo"
-          />
-        </a>
-        <a href="https://www.typescriptlang.org/docs" target="_blank">
-          <img
-            src="/src/assets/typescript.svg"
-            class="logo typescript"
-            alt="typescript logo"
-          />
-        </a>
+    <header>
+      <img class="block" src="/brand/mwk-block-512.png" alt="" width="30" height="30" />
+      <div>
+        <h1>Ghost Pointer</h1>
+        <p class="tag">Point at things on someone else&rsquo;s screen</p>
       </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
+    </header>
 
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p id="greet-msg"></p>
+    <main>
+      <section class="step">
+        <label class="lbl">Which side are you on?</label>
+        <div class="seg" id="role">
+          <button data-role="point"><b>I&rsquo;m pointing</b><span>You see their screen</span></button>
+          <button data-role="view"><b>Point at me</b><span>You&rsquo;re sharing yours</span></button>
+        </div>
+      </section>
+
+      <section class="step" id="room-step" hidden>
+        <label class="lbl" for="code">Room code</label>
+        <div class="row">
+          <input id="code" class="code" maxlength="6" spellcheck="false" autocomplete="off"
+                 placeholder="ABC234" />
+          <button id="gen" class="ghost-btn" title="New random code">New</button>
+        </div>
+        <p class="hint" id="code-hint">Read this out on the call. Not case sensitive.</p>
+      </section>
+
+      <section class="step" id="display-step" hidden>
+        <label class="lbl" for="display">Which screen are you sharing?</label>
+        <select id="display"></select>
+        <p class="hint">The ghost is drawn on this one. We never look at your screen &mdash;
+          you have to tell us.</p>
+      </section>
+
+      <section class="step" id="connect-step" hidden>
+        <button id="connect" class="primary" disabled>Connect</button>
+        <div class="status" id="status">
+          <span class="dot" id="dot"></span>
+          <span id="status-text">Not connected</span>
+          <span class="rtt" id="rtt"></span>
+        </div>
+      </section>
+
+      <section class="step host-only" id="aim-step" hidden>
+        <label class="lbl">Aim area</label>
+        <p class="hint" id="peer-hint">Waiting for the other side to join&hellip;</p>
+        <button id="aim" class="ghost-btn wide" disabled>Set the aim area</button>
+        <p class="hint" id="aim-hint">Not set yet. Drag a box around the window showing their screen.</p>
+      </section>
+
+      <section class="step host-only" id="arm-step" hidden>
+        <label class="lbl">How you point</label>
+        <div class="seg small" id="mode">
+          <button data-mode="tap"><b>Tap to arm</b><span>Press once, on. Again, off.</span></button>
+          <button data-mode="hold"><b>Hold&nbsp;&#8997;</b><span>Only while Option is down.</span></button>
+        </div>
+        <div class="row hk">
+          <label class="lbl inline" for="hotkey">Hotkey</label>
+          <input id="hotkey" class="mono-in" spellcheck="false" autocomplete="off" />
+        </div>
+        <div class="armed" id="armed"><span class="pip"></span><span id="armed-text">Not pointing</span></div>
+      </section>
+
+      <section class="step guest-only" id="guest-live" hidden>
+        <div class="armed live"><span class="pip"></span><span>Overlay is running. Nothing else to do.</span></div>
+      </section>
     </main>
+
+    <footer>
+      <span>No screen capture &middot; no remote control &middot; only draws</span>
+    </footer>
+
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

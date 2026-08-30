@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ghost Pointer — download</title>
+<meta name="description" content="Point at things on someone else's screen. A ghost cursor on their desktop, decoupled from whatever is sharing the screen.">
+<link rel="icon" href="/mwk-block-512.png">
+<meta property="og:title" content="Ghost Pointer">
+<meta property="og:description" content="Point at things on someone else's screen.">
+<meta property="og:image" content="https://ghost-pointer-app.matewishkey.com/mwk-block-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Mate Wish Key brand — matewishkey.com/media.
+     Red is a surface colour: the block, a button fill, a heading word at 19px/700 or bigger.
+     --red-deep is the only red allowed at reading size. */
+  :root{
+    --red:#e2342b; --red-deep:#c9251d; --red-field:#c9251d;
+    --ink:#16151a; --mute:#56525c; --paper:#ffffff; --line:#e7e4ea; --sunk:#f7f5f9;
+    --display:Fraunces,ui-serif,Georgia,serif;
+    --body:Manrope,-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--red-deep:#f0524a;--ink:#f4f2f6;--mute:#a8a2b0;--paper:#131313;--line:#2a2830;--sunk:#1b1a1f}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font:400 16px/1.6 var(--body);-webkit-font-smoothing:antialiased}
+  .wrap{max-width:680px;margin:0 auto;padding:0 24px 100px}
+
+  header{padding:64px 0 0}
+  /* Square corners at every size, including the tab icon. Never rounded, never shadowed. */
+  .block{display:block;width:72px;height:72px;border-radius:0}
+  h1{font:700 44px/1.05 var(--display);letter-spacing:-.02em;margin:26px 0 10px}
+  .sub{font-size:19px;color:var(--mute);margin:0;max-width:46ch}
+
+  .dl{margin:40px 0 0;padding:26px;border:1.5px solid var(--line);border-radius:16px;background:var(--sunk)}
+  a.btn{display:inline-flex;align-items:center;gap:10px;background:var(--red-field);color:#fff;
+        text-decoration:none;font:600 16px/1 var(--body);padding:15px 22px;border-radius:11px}
+  a.btn:hover{opacity:.9}
+  .facts{margin:14px 0 0;font:400 12.5px/1.7 var(--mono);color:var(--mute)}
+  .facts b{color:var(--ink);font-weight:500}
+
+  h2{font:700 24px/1.2 var(--display);letter-spacing:-.015em;margin:52px 0 4px}
+  h3{font:600 15px/1.3 var(--body);margin:26px 0 4px}
+  p{margin:12px 0}
+  .mute{color:var(--mute)}
+  code{font:.87em/1 var(--mono);background:var(--sunk);border:1px solid var(--line);border-radius:5px;padding:3px 6px}
+  pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto;
+      font:400 12.5px/1.6 var(--mono);margin:12px 0}
+  a{color:var(--red-deep)}
+
+  ol{padding-left:20px} ol li{margin:9px 0}
+  ul.nev{list-style:none;padding:0;margin:18px 0;display:grid;gap:10px}
+  ul.nev li{padding:13px 16px;border-left:2px solid var(--red);background:var(--sunk);border-radius:0 10px 10px 0;font-size:15px}
+  ul.nev b{font-weight:600}
+
+  .warn{border:1.5px solid var(--line);border-radius:14px;padding:20px 22px;margin:22px 0;background:var(--sunk)}
+  .warn h3{margin-top:0}
+
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14.5px}
+  td{padding:11px 12px 11px 0;border-bottom:1px solid var(--line);vertical-align:top;color:var(--mute)}
+  td:first-child{color:var(--ink);font-weight:600;white-space:nowrap;width:34%}
+
+  footer{margin-top:60px;padding-top:22px;border-top:1px solid var(--line);
+         font:400 12.5px/1.7 var(--mono);color:var(--mute)}
+  footer a{color:var(--mute)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <img class="block" src="/mwk-block-512.png" alt="Mate Wish Key" width="72" height="72">
+  <h1>Ghost Pointer</h1>
+  <p class="sub">Point at things on someone else&rsquo;s screen, over the internet &mdash;
+  decoupled from whatever is sharing it.</p>
+</header>
+
+<div class="dl">
+  <a class="btn" href="/{{DMG}}" download>Download for macOS</a>
+  <div class="facts">
+    <b>{{VERSION}}</b> &middot; {{SIZE}} &middot; universal (Apple&nbsp;silicon + Intel) &middot; macOS&nbsp;11+<br>
+    built {{DATE}} &middot; sha256 {{SHA}}
+  </div>
+</div>
+
+<h2>What it is</h2>
+<p>Somebody shares their screen on a call. You see it in a window on your own desktop. You arm a
+hotkey, move your mouse over that window, and a <b>ghost cursor appears on their actual
+desktop</b> and follows you, with a short fading trail.</p>
+<p>It is not tied to Zoom, Meet, Teams or anything else, because it never talks to them. It just
+draws a dot on a desktop &mdash; so it works with whatever you already use, and keeps working
+when you switch.</p>
+
+<ul class="nev">
+  <li><b>Never captures the screen.</b> It asks for no screen-recording permission and cannot see anything.</li>
+  <li><b>Never controls the machine.</b> No clicks, no keystrokes, no remote control.</li>
+  <li><b>Never sends anything but coordinates.</b> Two numbers between 0 and 1. That is the whole payload.</li>
+</ul>
+<p class="mute">On macOS it needs <b>no permissions at all</b> &mdash; neither side gets a single
+permission dialog. That was measured on real hardware, not assumed.</p>
+
+<h2>Installing it</h2>
+<div class="warn">
+  <h3>This build is not signed yet, so macOS will block it once</h3>
+  <p class="mute">Signing needs a paid Apple developer account, and this is a test build. Nothing
+  is wrong with the app &mdash; macOS simply refuses to vouch for a developer it has never been
+  told about. You have to allow it by hand, one time, per machine.</p>
+  <ol>
+    <li>Open the <code>.dmg</code> and drag <b>Ghost&nbsp;Pointer</b> into <b>Applications</b>.</li>
+    <li>Open it. macOS says it cannot verify the developer &mdash; dismiss that.</li>
+    <li>Go to <b>System&nbsp;Settings &rarr; Privacy&nbsp;&amp;&nbsp;Security</b>, scroll to the
+        bottom, and click <b>Open&nbsp;Anyway</b> next to Ghost&nbsp;Pointer.</li>
+    <li>Open it again and confirm. That is the last time you will see it.</li>
+  </ol>
+  <p class="mute">Or skip all of that from a terminal:</p>
+  <pre>xattr -dr com.apple.quarantine "/Applications/Ghost Pointer.app"</pre>
+</div>
+
+<h2>Using it</h2>
+<p>Install it on <b>both</b> machines &mdash; it is one app, and you pick your side when you open it.</p>
+<table>
+  <tr><td>1. Pick a side</td><td><b>I&rsquo;m pointing</b> if you are the one pointing; <b>Point at me</b> if you are sharing your screen.</td></tr>
+  <tr><td>2. Room code</td><td>One of you presses <b>New</b> and reads the six characters out. The other types them in. Both press Connect.</td></tr>
+  <tr><td>3. Guest picks a screen</td><td>Whoever is sharing chooses which of their displays it is. The app never looks &mdash; you have to say.</td></tr>
+  <tr><td>4. Host sets the aim area</td><td>Click <b>Set the aim area</b>, then drag a box around the window showing their screen. The box snaps to the shape of their display. Do it again whenever that window moves.</td></tr>
+  <tr><td>5. Point</td><td>Press the hotkey &mdash; <code>{{HOTKEY}}</code> by default &mdash; and move your mouse. Press it again to stop. Or switch to <b>Hold&nbsp;&#8997;</b> and point only while Option is down.</td></tr>
+</table>
+
+<h2>What it does not do yet</h2>
+<p class="mute">Drawing or annotation, marks that stay on screen, accounts, a menu-bar icon,
+reconnecting on its own, Windows. This is a first build meant to answer one question: does
+pointing at someone else&rsquo;s screen actually feel good?</p>
+
+<footer>
+  Ghost Pointer is by <a href="https://matewishkey.com">Mate Wish Key</a>, a brand of Mergodon Pty Ltd, Brisbane.<br>
+  Source: <a href="https://github.com/matewishkey/mwk-ghost-pointer">github.com/matewishkey/mwk-ghost-pointer</a>
+</footer>
+
+</div>
+</body>
+</html>

@@ -2,10 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the Ghost Pointer windows",
-  "windows": [
-    "main"
-  ],
+  "windows": ["main", "overlay", "aim"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "global-shortcut:default"
   ]
 }

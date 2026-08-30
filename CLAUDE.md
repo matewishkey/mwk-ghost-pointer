@@ -43,6 +43,7 @@ handful of files that are shared.
 | `docs/spec.md` | Linux box — it's the protocol contract | read-only; file an issue to change it |
 | `app/` | Mac | read-only |
 | `app/CLAUDE.md`, `app/README.md` | Mac — they live in `app/` | read-only |
+| `download/` — the public download page | Mac builds it, **Linux deploys it** | see below |
 | root `README.md`, `docs/research.md`, root `CLAUDE.md` | either | pull first, say so in the commit |
 
 **Rules**
@@ -56,13 +57,17 @@ handful of files that are shared.
 3. **`docs/spec.md` is the contract between the two halves and only the relay side changes
    it.** If the app needs a protocol change, `gh issue create` against this repo and say what
    and why. Same instinct as the cross-repo rule — don't reach into the other side's lane.
-4. **Only the Linux box runs `wrangler deploy`.** One Worker name, so two deployers means
-   whoever ran last silently wins. The Mac develops against the deployed URL, never redeploys it.
+4. **Only the Linux box runs `wrangler`.** One Worker name, so two deployers means whoever ran
+   last silently wins. The Mac develops against the deployed URL, never redeploys it. The same
+   split is why `download/` is built on the Mac and deployed from Linux: only a Mac can build a
+   Mac app, and only the Linux box holds the Cloudflare token — the Mac deliberately has no age
+   key, so it cannot decrypt one. The `.dmg` travels between them on the shared drive, never
+   through git.
 5. **Coordinate through GitHub Issues**, not through the docs. Both machines have `gh`. An
    issue is the only channel that reaches the other session, since neither can see the other's
    conversation.
 
-## State as of 2026-08-24
+## State as of 2026-08-30
 
 - **This repo is public** (`matewishkey/mwk-ghost-pointer`). Nothing secret has ever been in
   it — history was scanned before publishing. Keep it that way: no account ids, no tokens, no
@@ -75,11 +80,18 @@ handful of files that are shared.
   endpoint, not obscurity — don't bother before there are real users.
 - `node tools/probe.mjs <ws-url>` is the regression test. Run it after any relay change.
   It exits non-zero on failure. Local: `cd relay && npm run dev`, then probe `ws://127.0.0.1:8787`.
-- App: **M0 done 2026-08-24, no app code yet.** The macOS permission spike came back clean —
-  **neither role needs any permission, and no dialog appears on any path the app uses.**
-  Sender-side polling (`NSEvent.mouseLocation` + `NSEvent.modifierFlags`) and
-  `RegisterEventHotKey` all work with zero TCC grants. Evidence and method: `app/m0-findings.md`;
-  instrument: `app/m0-spike/` (throwaway, delete once M1 stands alone). M1 (loopback) is next.
+- **App: M0, M1 and most of M2 are done. It builds, runs, and has been proven end to end.**
+  A scripted host on the LAN drove a ghost onto this Mac's real desktop through the live relay,
+  at 22-24 ms, drawn over other apps, and clicks still went through the overlay to the app
+  underneath. Room codes, aim-rect calibration, display picker, trail, tap-to-arm *and*
+  hold-to-point, live RTT — all in. Not done: reconnect, tray icon, Windows, signing.
+- **Distribution is unsigned, on purpose.** `https://ghost-pointer-app.matewishkey.com` serves a
+  universal (Apple silicon + Intel) `.dmg` and the Gatekeeper walkthrough. Signing needs a $99/yr
+  Apple Developer account and only buys a clean double-click for someone who isn't mate — it is
+  **not** the App Store, and the store is closed to us anyway (`macOSPrivateApi`, issue #3).
+- The macOS permission spike came back clean — **neither role needs any permission, and no
+  dialog appears on any path the app uses.** Evidence and method: `app/m0-findings.md`;
+  instrument: `app/m0-spike/` (throwaway, safe to delete now that M1 stands alone).
 
 ## Decisions already made — don't relitigate
 
@@ -98,18 +110,18 @@ handful of files that are shared.
 
 ## Build order
 
-**M0 — the macOS spike. Everything is gated on this. Throwaway code, do not polish.**
+**M0 — the macOS spike. DONE 2026-08-24.** Throwaway code, do not polish.
 On the Mac, prove three things and *write down which permission dialogs appear*:
 transparent click-through always-on-top window that draws a dot; global cursor position in a
 loop; modifier-hold detection. The answer picks the sender UX and the first-run onboarding.
 
-**M1 — loopback.** Both roles on one Mac, hardcoded coordinates, against the live relay.
+**M1 — loopback. DONE 2026-08-30.** Both roles on one Mac, hardcoded coordinates, against the live relay.
 Proves the render loop and the wire format.
 
-**M2 — two machines.** Room codes, aim-rect calibration, display picker. First genuinely
+**M2 — two machines. Built 2026-08-30, not yet tested with a real guest.** Room codes, aim-rect calibration, display picker. First genuinely
 useful build; this is the one mate tests with a guest.
 
-**M3 — feel.** Interpolation between samples, trail tuning, tray icon, reconnect, hotkey config.
+**M3 — feel. Interpolation and the trail are in; the rest is open.** Interpolation between samples, trail tuning, tray icon, reconnect, hotkey config.
 
 ## Secrets
 

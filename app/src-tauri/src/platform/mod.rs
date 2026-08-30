@@ -54,12 +54,9 @@ pub struct Modifiers {
     pub meta: bool,
 }
 
-impl Modifiers {
-    /// The arm gesture. Hold-to-point: the ghost is visible exactly while this is true.
-    pub fn is_arm_held(&self) -> bool {
-        self.alt
-    }
-}
+// Which modifier counts as "armed" is deliberately NOT decided here. The app offers both
+// tap-to-arm and hold-to-point, and that is a feel question the UI owns — the platform layer's
+// job is only to report, honestly and cheaply, what is held right now.
 
 /// Everything the app needs from the operating system.
 pub trait Platform {

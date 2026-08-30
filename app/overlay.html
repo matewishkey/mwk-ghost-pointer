@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Ghost Pointer overlay</title>
+    <style>
+      /* Every one of these matters. A stray background colour here paints an opaque sheet over
+         the guest's entire desktop, and `pointer-events` is the belt to the backend's braces
+         (`set_ignore_cursor_events`) — if either one fails the desktop stops taking clicks. */
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        pointer-events: none;
+        user-select: none;
+        cursor: none;
+      }
+      canvas { display: block; width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <script type="module" src="/src/overlay.ts"></script>
+  </body>
+</html>

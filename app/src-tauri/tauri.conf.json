@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ghost Pointer",
   "version": "0.1.0",
-  "identifier": "com.mergodon.ghostpointer",
+  "identifier": "com.matewishkey.ghostpointer",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -11,11 +11,18 @@
   },
   "app": {
     "withGlobalTauri": true,
+    "macOSPrivateApi": true,
     "windows": [
       {
+        "label": "main",
         "title": "Ghost Pointer",
-        "width": 800,
-        "height": 600
+        "width": 480,
+        "height": 720,
+        "minWidth": 420,
+        "minHeight": 560,
+        "resizable": true,
+        "titleBarStyle": "Transparent",
+        "hiddenTitle": true
       }
     ],
     "security": {
@@ -24,13 +31,20 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app", "dmg"],
+    "category": "Productivity",
+    "shortDescription": "Point at things on someone else's screen",
+    "longDescription": "Ghost Pointer draws a ghost cursor on someone else's desktop while they share their screen. No screen capture, no remote control, no input injection — it only ever draws.",
+    "copyright": "© 2026 Mate Wish Key, a brand of Mergodon Pty Ltd",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
   }
 }
