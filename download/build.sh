@@ -28,7 +28,7 @@ hotkey="$(sed -n 's/.*DEFAULT_HOTKEY = "\([^"]*\)".*/\1/p' "$repo/app/src/main.t
 sed -e "s|{{DMG}}|$name|g" \
     -e "s|{{VERSION}}|v$version|g" \
     -e "s|{{SIZE}}|$size|g" \
-    -e "s|{{SHA}}|$sha…|g" \
+    -e "s|{{SHA}}|${sha}…|g" \
     -e "s|{{DATE}}|$(date -u +'%-d %b %Y')|g" \
     -e "s|{{HOTKEY}}|$hotkey|g" \
     "$here/template.html" > "$out/index.html"
