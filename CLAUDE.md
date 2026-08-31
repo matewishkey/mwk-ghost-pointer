@@ -85,6 +85,10 @@ handful of files that are shared.
   at 22-24 ms, drawn over other apps, and clicks still went through the overlay to the app
   underneath. Room codes, aim-rect calibration, display picker, trail, tap-to-arm *and*
   hold-to-point, live RTT — all in. Not done: reconnect, tray icon, Windows, signing.
+- **Windows: built, published, withdrawn** (31 Aug). It locked up a real machine — the overlay
+  covered the screen and ate every click. Diagnosis and the unverified fix are in
+  `app/CLAUDE.md` § Windows; read it before touching that path. macOS is unaffected and is what
+  the site serves.
 - **Distribution is unsigned, on purpose.** `https://ghost-pointer-app.matewishkey.com` serves a
   universal (Apple silicon + Intel) `.dmg` and the Gatekeeper walkthrough. Signing needs a $99/yr
   Apple Developer account and only buys a clean double-click for someone who isn't mate — it is

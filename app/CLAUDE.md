@@ -102,6 +102,56 @@ Settled, and not to be relitigated:
 - **Marks have two modes, both wanted:** persistent and fading. That is a per-mark flag on the
   wire, not a room setting, so switching mid-session leaves existing marks alone.
 
+## Windows — START HERE if you are on the Windows box (1 Sep 2026)
+
+**A Windows build was published on 31 Aug and it locked up a real machine.** Connected as a
+viewer, the whole desktop stopped responding to the mouse. It was withdrawn the same evening;
+`download/` publishes nothing for Windows and the two installer URLs redirect to the page.
+CI still builds Windows on every push to `app/` — building is not the problem.
+
+### What is already known, so you do not re-derive it
+
+Three defects in `open_overlay`, found by reading, all fixed in `lib.rs` but **run on neither
+platform**:
+
+1. The overlay was created **visible** and made click-through afterwards, so a full-screen
+   window existed before it was harmless.
+2. If `set_ignore_cursor_events` failed, the error returned but **the window stayed up**.
+3. `startViewing` calls `invoke("open_overlay")` with no `try`/`catch`, so that error was a
+   silent unhandled rejection — no message, no log.
+
+Together those produce the exact symptom. The fix inverts the order — build hidden, arm,
+verify, then show — and destroys the window if arming fails. On Windows it now reads the
+ex-style back and requires `WS_EX_LAYERED | WS_EX_TRANSPARENT`, because "the setter returned
+Ok" and "the mouse passes through" turned out to be different claims.
+
+**Defect 3 is still not fixed.** The frontend still swallows the error. Do that first — it is
+five lines and it is why the failure was invisible.
+
+### Do these before anything else
+
+1. **Verify the fix on macOS too.** `open_overlay` is shared and the reordering is unrun there.
+   Regression to check: overlay still appears, still passes clicks.
+2. **Confirm the ex-style readback compiles on Windows.** It was written blind; CI is the
+   compiler. `gh run list` after a push.
+3. **Test click-through in a bounded way.** Do not connect a room to find out. The safe shape
+   is an overlay that closes itself after ~10s, so a failure costs ten seconds instead of Task
+   Manager. This was designed and never built.
+4. **There are still no logs, anywhere.** No file, no crash report, nothing. That is why 31 Aug
+   produced no evidence. `tauri-plugin-log` plus a "copy diagnostics" button was the plan.
+
+### Escape hatch, already shipped
+
+The guest registers the hotkey (default `Ctrl+Alt+Shift+G`) purely to close the overlay and
+disconnect. A global hotkey still works when the mouse cannot reach anything. Keep it.
+
+### Publishing rules paid for on 31 Aug
+
+`download/README.md` has them and they are not optional: **bump the version for every published
+build**; Cloudflare Pages does not un-publish a file when you stop uploading it; and Pages
+answers `200` with `index.html` for anything missing, so **a status-code check proves nothing**
+— compare bytes or content type.
+
 ## Displays — AppKit knows things CoreGraphics does not
 
 `displays()` joins the two: bounds and ids from `CGDisplay` (top-left origin, the app's
