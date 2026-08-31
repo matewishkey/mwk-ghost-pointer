@@ -12,7 +12,7 @@
 
 mod platform;
 
-use platform::{Display, Modifiers, Platform, Point};
+use platform::{Clicks, Display, Modifiers, Platform, Point};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -22,12 +22,19 @@ use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUr
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 /// One tick of the sender's poll loop: where the cursor is, and what is held.
+///
+/// Clicks ride the same tick as the position deliberately. A click arriving on its own clock
+/// could be reported against a stale cursor position, and a pulse drawn a few pixels away from
+/// where it was clicked is worse than no pulse at all.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 struct Sample {
     x: f64,
     y: f64,
     #[serde(flatten)]
     mods: Modifiers,
+    /// Nested rather than flattened: `Clicks` and `Modifiers` would otherwise both want to be
+    /// merged into the same object, and `left` means very different things in each.
+    clicks: Clicks,
 }
 
 /// Owns the poll loop's stop flag. One loop at a time, ever.
@@ -50,6 +57,24 @@ fn cursor_position() -> Option<Point> {
 #[tauri::command]
 fn modifiers() -> Modifiers {
     platform::Impl::modifiers()
+}
+
+/// Running click counts. See `platform::Clicks` — deltas only, never the absolute value.
+#[tauri::command]
+fn clicks() -> Clicks {
+    platform::Impl::clicks()
+}
+
+/// Which build this is. The app ships as an unsigned `.dmg` that people re-download by hand, so
+/// "which one am I running?" is otherwise unanswerable — and the first question asked of any bug
+/// report.
+#[tauri::command]
+fn build_info() -> serde_json::Value {
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "commit": env!("GP_COMMIT"),
+        "built": env!("GP_BUILT"),
+    })
 }
 
 /// Every active display, for the viewer's picker and the `geo` message.
@@ -93,7 +118,12 @@ fn start_cursor_stream(app: AppHandle, stream: tauri::State<'_, Stream>) {
         let mut last: Option<Sample> = None;
         while running.load(Ordering::SeqCst) {
             if let Some(p) = platform::Impl::cursor_position() {
-                let s = Sample { x: p.x, y: p.y, mods: platform::Impl::modifiers() };
+                let s = Sample {
+                    x: p.x,
+                    y: p.y,
+                    mods: platform::Impl::modifiers(),
+                    clicks: platform::Impl::clicks(),
+                };
                 if last != Some(s) {
                     let _ = app.emit("cursor", s);
                     last = Some(s);
@@ -233,6 +263,17 @@ fn cancel_aim(app: AppHandle) -> Result<(), String> {
     close_aim(app)
 }
 
+/// Fire a click pulse on the overlay: a ring that expands and fades where the click landed.
+///
+/// Separate from `draw` because a pulse is an *event*, not a state. The ghost has one position
+/// that keeps being overwritten; pulses accumulate and each lives out its own short life.
+#[tauri::command]
+fn pulse(app: AppHandle, payload: serde_json::Value) {
+    if let Some(win) = app.get_webview_window("overlay") {
+        let _ = win.emit("pulse", payload);
+    }
+}
+
 /// Forward a pointer position to the overlay.
 ///
 /// The control window owns the socket, the overlay owns the drawing, and they are separate
@@ -285,6 +326,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             cursor_position,
             modifiers,
+            clicks,
+            build_info,
             displays,
             start_cursor_stream,
             stop_cursor_stream,
@@ -295,6 +338,7 @@ pub fn run() {
             commit_aim,
             cancel_aim,
             draw,
+            pulse,
             set_hotkey,
         ])
         .run(tauri::generate_context!())

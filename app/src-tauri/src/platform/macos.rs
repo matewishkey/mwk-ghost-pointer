@@ -5,7 +5,7 @@
 //! the moment anything here reaches for a `CGEvent` tap, the app starts demanding Input
 //! Monitoring and the "nothing scary to install" pitch is gone.
 
-use super::{Display, Modifiers, Platform, Point};
+use super::{Clicks, Display, Modifiers, Platform, Point};
 use core_graphics::display::CGDisplay;
 use core_graphics::event::{CGEvent, CGEventFlags};
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
@@ -19,6 +19,9 @@ use std::collections::HashMap;
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGEventSourceFlagsState(state_id: u32) -> u64;
+    // Same family, same answer on permissions — measured, not assumed. Event types are
+    // CGEventType: 1 leftMouseDown, 3 rightMouseDown.
+    fn CGEventSourceCounterForEventType(state_id: u32, event_type: u32) -> u32;
 }
 
 /// Real monitor name and backing scale for each display, keyed by `CGDirectDisplayID`.
@@ -101,6 +104,18 @@ impl Platform for Impl {
             ctrl: f.contains(CGEventFlags::CGEventFlagControl),
             shift: f.contains(CGEventFlags::CGEventFlagShift),
             meta: f.contains(CGEventFlags::CGEventFlagCommand),
+        }
+    }
+
+    fn clicks() -> Clicks {
+        // Permission-free, measured in a clean room (M3 spike). Counting rather than sampling is
+        // what makes a fast click impossible to miss — see `super::Clicks`.
+        let state = CGEventSourceStateID::CombinedSessionState as u32;
+        unsafe {
+            Clicks {
+                left: CGEventSourceCounterForEventType(state, 1),
+                right: CGEventSourceCounterForEventType(state, 3),
+            }
         }
     }
 

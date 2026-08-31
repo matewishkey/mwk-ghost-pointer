@@ -217,3 +217,45 @@ is a per-feature price, not a whole-app one: only text mode pays it.
 with no permission model at all, which would make Windows a superset of these constraints
 rather than a subset — but nobody has run it, and this project has no Windows machine yet.
 Design to the macOS limits and Windows should follow; do not assume the reverse.
+
+---
+
+# Addendum 2 — 2026-08-31: counting clicks, because polling loses them
+
+The M2 result above ("mouse buttons are readable with no permission") was true and still
+misleading. Building click-to-pulse on it produced a feature that worked when tested by hand and
+failed on the first synthetic click, and the reason is not macOS-specific:
+
+**A 60 Hz poll cannot see an event shorter than 16 ms.** Sampling *state* asks "is the button
+down *now*"; a click that begins and ends between two ticks was never down when anyone looked.
+
+Instrument: `m0-spike/m3.swift` and `m0-spike/quickclick.swift`, same clean room. Three
+instantaneous clicks (down and up posted back to back):
+
+    baseline TCC   Accessibility=no  InputMonitoring=no  PostEvents=no
+    clicks the 60 Hz POLL noticed:     NONE
+    clicks the COUNTER noticed:        3
+
+`CGEventSourceCounterForEventType` counts events rather than sampling state, so the click having
+already finished does not matter — it happened, so the number moved. **It needs no permission
+either**, measured in the same clean room, and it caught all three.
+
+## What this changes
+
+- **`Platform::clicks()` returns counters, not button state.** Deltas between ticks are the
+  signal; the absolute value is meaningless (it is system-wide and monotonic). The first read of
+  a session is a baseline — treating it as a delta would fire a pulse for every click since boot.
+- **The same trap is waiting on Windows.** `GetAsyncKeyState(VK_LBUTTON)` is *state*, so
+  translating the macOS code directly would reproduce the bug on a platform where nobody would
+  think to look for it. A `WH_MOUSE_LL` hook counts properly and needs no permission there.
+- **Held things stay polls.** Modifiers are held for as long as the gesture lasts, so sampling
+  state is right for them. It is only the instantaneous events that need counting. The rule is
+  the shape of the input, not the API family.
+
+## The general lesson, since this is the second time
+
+M0 said poll, don't tap. That is still right — but "poll" answers *is it held*, and it silently
+answers *did it happen* wrong. Both questions look identical in an API listing and behave
+identically under a human hand, which is why hand-testing passed and the first machine-driven
+test failed. **Test input paths with synthetic events, not fingers:** a hand cannot produce the
+timings that break them.

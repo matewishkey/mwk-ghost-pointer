@@ -23,6 +23,19 @@ export interface Peer {
   geo?: Geo;
 }
 
+/** Which mouse button a click pulse came from. DOM numbering, so 1 (middle) is skipped. */
+export type ClickButton = 0 | 2;
+
+/** A click pulse as it arrives from the relay. */
+export interface ClickMsg {
+  k: "c";
+  x: number;
+  y: number;
+  b: ClickButton;
+  t: number;
+  id: string;
+}
+
 /** A pointer sample as it arrives from the relay: normalised 0..1, with the sender stamped on. */
 export interface PointerMsg {
   k: "p";
@@ -53,6 +66,7 @@ type Handlers = {
   onOpen?: (you: Peer, peers: Peer[]) => void;
   onPeers?: (peers: Peer[]) => void;
   onPointer?: (m: PointerMsg) => void;
+  onClick?: (m: ClickMsg) => void;
   onRtt?: (ms: number) => void;
   onClose?: (why: string) => void;
 };
@@ -116,6 +130,9 @@ export class Relay {
       case "p":
         this.h.onPointer?.(m as PointerMsg);
         break;
+      case "c":
+        this.h.onClick?.(m as ClickMsg);
+        break;
       case "pong":
         this.h.onRtt?.(Date.now() - m.t);
         break;
@@ -138,6 +155,18 @@ export class Relay {
     this.lastSent = { x: qx, y: qy, a };
     this.ws!.send(JSON.stringify({ k: "p", x: qx, y: qy, a, t: Date.now() }));
     return true;
+  }
+
+  /**
+   * Send a click pulse.
+   *
+   * **The live relay drops this** — it ends its switch with `default: return`, so `c` goes
+   * nowhere until issue #6 lands. Sending it anyway is deliberate: the host draws its own pulse
+   * locally either way, so the feature is usable and testable now, and the day the relay learns
+   * `c` the guest starts seeing them with no change here.
+   */
+  sendClick(x: number, y: number, b: ClickButton): void {
+    if (this.connected) this.ws!.send(JSON.stringify({ k: "c", x, y, b, t: Date.now() }));
   }
 
   sendGeo(g: Geo): void {

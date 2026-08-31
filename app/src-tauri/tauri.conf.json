@@ -17,9 +17,9 @@
         "label": "main",
         "title": "Ghost Pointer",
         "width": 480,
-        "height": 720,
+        "height": 800,
         "minWidth": 420,
-        "minHeight": 560,
+        "minHeight": 620,
         "resizable": true,
         "titleBarStyle": "Transparent",
         "hiddenTitle": true

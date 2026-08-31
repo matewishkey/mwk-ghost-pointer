@@ -78,11 +78,18 @@ until #6 lands — do not start the wire work against a guessed shape.
 
 Settled, and not to be relitigated:
 
-- **Gestures come from held modifiers, not mouse buttons.** The M2 spike proved buttons are
-  readable with no permission (`m0-findings.md` § Addendum) — but reading is not owning: the
-  click still lands in whatever is under the cursor, so hold-to-draw over a Zoom window also
-  drags inside Zoom. Movement, held modifiers and registered hotkeys are the only gestures that
-  are both free *and* leak-free.
+- **Count clicks, do not poll for them.** `Platform::clicks()` returns monotonic counters and
+  the app watches deltas. Polling button *state* loses any click shorter than one 16 ms tick —
+  measured, three synthetic clicks, poll saw none (`m0-findings.md` § Addendum 2). Held
+  modifiers stay polls, because "is it held" is a state question. The rule is the shape of the
+  input, not the API.
+- **A click may pulse; only a modifier may draw.** The M2 spike proved buttons are readable with
+  no permission (`m0-findings.md` § Addendum) — but reading is not owning: the click still lands
+  in whatever is under the cursor. For a *pulse* that is fine, because while pointing the thing
+  under the cursor is a video of someone else's screen, where a click does nothing. For *ink* it
+  is not: a drag would drag inside the call app too. So click-to-pulse uses a real click
+  (shipped 2026-08-31), and drawing will be bound to a held modifier. Do not "simplify" these
+  into one gesture — the difference is the whole reason one is safe.
 - **Typing is a composer window, not a keyboard grab.** Point, press the text hotkey, the ghost
   freezes as the anchor, type into a real focused window, Enter sends (Shift+Enter for a
   newline), pointing resumes. Intended shape is a **non-activating panel** so the video call

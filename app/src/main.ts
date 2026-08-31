@@ -5,7 +5,7 @@ import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Relay, randomCode, normaliseCode, isValidCode } from "./protocol";
-import type { Geo, Peer, Role } from "./protocol";
+import type { ClickButton, Geo, Peer, Role } from "./protocol";
 
 interface Display {
   id: string; label: string;
@@ -13,7 +13,12 @@ interface Display {
   scale: number; is_primary: boolean;
 }
 interface Rect { x: number; y: number; w: number; h: number }
-interface Cursor { x: number; y: number; alt: boolean; ctrl: boolean; shift: boolean; meta: boolean }
+interface Cursor {
+  x: number; y: number;
+  alt: boolean; ctrl: boolean; shift: boolean; meta: boolean;
+  /** Running totals, not per-tick counts. Only the delta between two ticks means anything. */
+  clicks: { left: number; right: number };
+}
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -44,6 +49,12 @@ let armMode: "tap" | "hold" = "tap";
 let armed = false;
 /** True on the frame after disarming, so exactly one `a:0` goes out to start the fade. */
 let wasArmed = false;
+/**
+ * Last click totals seen. `null` until the first sample, because these counters are system-wide
+ * and monotonic — treating the first absolute reading as a delta would fire a pulse for every
+ * click made since the machine booted.
+ */
+let prevClicks: { left: number; right: number } | null = null;
 let connected = false;
 
 const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
@@ -70,6 +81,11 @@ const relay = new Relay({
   onPeers,
   onPointer: (m) => {
     if (role === "view") void invoke("draw", { payload: { x: m.x, y: m.y, a: m.a } });
+  },
+  onClick: (m) => {
+    // The guest's overlay covers exactly the display it picked, so normalised coordinates land
+    // straight on it with nothing to offset.
+    if (role === "view") void invoke("pulse", { payload: { x: m.x, y: m.y, b: m.b } });
   },
   onRtt: (ms) => { el.rtt.textContent = `${ms} ms`; },
   onClose: (why) => {
@@ -121,6 +137,34 @@ async function openHostOverlay(): Promise<void> {
   }
 }
 
+/**
+ * Aim-rect coordinates to a position on the host's *own* overlay window.
+ *
+ * Deliberately routed back through the aim rect rather than using the raw cursor, so the host
+ * sees the ghost park at the edge exactly as the guest does when the mouse leaves the rect.
+ */
+function toHostOverlay(nx: number, ny: number): { x: number; y: number } | null {
+  if (!aim || !hostScreen) return null;
+  return {
+    x: (aim.x + nx * aim.w - hostScreen.x) / hostScreen.w,
+    y: (aim.y + ny * aim.h - hostScreen.y) / hostScreen.h,
+  };
+}
+
+/**
+ * A click while pointing puts a pulse on their screen.
+ *
+ * Fired from a real mouse click, which the M2 spike proved costs no permission to read. The
+ * click *also* reaches whatever is under the cursor — but while pointing that is a video of
+ * someone else's screen, where a click does nothing. Drawing cannot use this: a drag would drag
+ * inside the call app too, which is why ink is bound to a held modifier instead.
+ */
+function firePulse(nx: number, ny: number, b: ClickButton): void {
+  relay.sendClick(nx, ny, b);
+  const local = toHostOverlay(nx, ny);
+  if (local) void invoke("pulse", { payload: { ...local, b } });
+}
+
 void listen<Cursor>("cursor", (ev) => {
   if (role !== "point" || !connected) return;
   const c = ev.payload;
@@ -134,19 +178,24 @@ void listen<Cursor>("cursor", (ev) => {
   // tells the guest to start fading.
   if (armed || wasArmed) {
     relay.sendPointer(nx, ny, armed);
-    if (hostScreen) {
-      // Map back through the aim rect rather than using the raw cursor, so the host sees the
-      // ghost park at the edge exactly as the guest does when the mouse leaves the rect.
-      void invoke("draw", {
-        payload: {
-          x: (aim.x + nx * aim.w - hostScreen.x) / hostScreen.w,
-          y: (aim.y + ny * aim.h - hostScreen.y) / hostScreen.h,
-          a: armed ? 1 : 0,
-        },
-      });
-    }
+    const local = toHostOverlay(nx, ny);
+    if (local) void invoke("draw", { payload: { ...local, a: armed ? 1 : 0 } });
   }
   wasArmed = armed;
+
+  // Deltas, and only while pointing — otherwise every click anywhere on the machine would throw
+  // a pulse onto someone else's screen. The totals are tracked even while disarmed, so arming
+  // never inherits a backlog of clicks made in between.
+  if (prevClicks && armed) {
+    // Capped: a double-click should show as two, but a counter that jumps (a wake from sleep,
+    // a missed second) must not spray the guest's screen.
+    const fire = (delta: number, b: ClickButton) => {
+      for (let i = 0; i < Math.min(delta, 3); i++) firePulse(nx, ny, b);
+    };
+    fire(c.clicks.left - prevClicks.left, 0);
+    fire(c.clicks.right - prevClicks.right, 2);
+  }
+  prevClicks = { ...c.clicks };
 });
 
 void listen("hotkey", () => {
@@ -227,6 +276,7 @@ function setStatus(kind: "" | "on" | "bad", text: string): void {
 async function teardown(): Promise<void> {
   setArmed(false);
   wasArmed = false;
+  prevClicks = null;
   // Clearing this here rather than in onClose covers the manual Disconnect too — that path
   // suppresses onClose on purpose, and a latency reading left over from a dead socket reads
   // as if the connection were still up.
@@ -311,6 +361,21 @@ el.connect.onclick = async () => {
   relay.connect(code, role!, role === "point" ? "host" : "guest");
 };
 
+/** Stamp the footer with exactly which build this is — first question of any bug report. */
+async function showBuild(): Promise<void> {
+  try {
+    const b = await invoke<{ version: string; commit: string; built: string }>("build_info");
+    const when = new Date(Number(b.built) * 1000);
+    const stamp = when.toLocaleString(undefined, {
+      day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+    });
+    // The trailing "+" on a commit means it was built from a modified tree — see build.rs.
+    $("build").textContent = `v${b.version} · ${b.commit} · ${stamp}`;
+  } catch {
+    $("build").textContent = "";
+  }
+}
+
 function loadAim(): Rect | null {
   try {
     const raw = store.get(aimKey());
@@ -323,6 +388,7 @@ function loadAim(): Rect | null {
 // ---------------------------------------------------------------------------------------------
 
 async function boot(): Promise<void> {
+  void showBuild();
   displays = await invoke<Display[]>("displays");
   el.display.innerHTML = "";
   for (const d of displays) {

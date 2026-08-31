@@ -61,7 +61,11 @@ header {
 h1 { font: 700 21px/1.1 var(--display); margin: 0; letter-spacing: -0.01em; }
 .tag { margin: 2px 0 0; font-size: 12.5px; color: var(--mute); }
 
-main { padding: 0 24px 8px; display: flex; flex-direction: column; gap: 20px; }
+/* The only scrolling region. Header and footer stay put around it. */
+main {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  padding: 0 24px 16px; display: flex; flex-direction: column; gap: 20px;
+}
 
 .lbl {
   display: block; font: 500 10.5px/1 var(--mono); letter-spacing: 0.13em;
@@ -140,10 +144,21 @@ button.ghost-btn.wide { width: 100%; }
 .armed.live .pip { background: #2f9e5e; }
 .armed.live { color: var(--ink); }
 
+/* Pinned, not merely last. In host mode the content is taller than the window, and a footer
+   that scrolls away takes the build stamp with it — which is the one thing that has to be
+   readable when someone is telling you what broke. */
 footer {
-  margin-top: auto; padding: 18px 24px 20px;
+  flex: none; padding: 13px 24px 15px;
   font: 400 11px/1.5 var(--mono); color: var(--mute); text-align: center;
+  border-top: 1px solid var(--line); background: var(--paper);
+}
+/* Which build this is. Selectable on purpose — it belongs in a bug report, so it has to be
+   copyable even though the rest of the window deliberately is not. */
+.build {
+  display: block; margin-top: 5px; opacity: .62; font-size: 10.5px;
+  user-select: text; -webkit-user-select: text; cursor: text;
 }
 
-body { display: flex; flex-direction: column; min-height: 100vh; }
+body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+header { flex: none; }
 [hidden] { display: none !important; }

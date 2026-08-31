@@ -58,6 +58,31 @@ pub struct Modifiers {
 // tap-to-arm and hold-to-point, and that is a feel question the UI owns — the platform layer's
 // job is only to report, honestly and cheaply, what is held right now.
 
+/// A running count of mouse clicks, as reported by the OS.
+///
+/// **Counts, not state — and the difference is a bug I shipped and had to take back.** The
+/// obvious design is to poll whether the button is down and watch for a rising edge. The M3
+/// spike measured what that actually does: three instantaneous clicks, and a 60 Hz poll saw
+/// *none* of them, because a click that begins and ends between two ticks was never down when
+/// anyone looked. A counter cannot miss one — the click still happened, so the number still
+/// moved.
+///
+/// These are monotonic and system-wide, so only the delta between two reads means anything, and
+/// the first read of a session is a baseline rather than a delta. Treating the absolute value as
+/// a count of clicks would fire thousands of pulses at once.
+///
+/// Permission-free, measured in a clean room holding zero TCC grants — see
+/// `app/m0-findings.md` § Addendum.
+///
+/// **Reading a click is not owning it.** It still reaches whatever is under the cursor. That is
+/// fine for a pulse, because while pointing the thing under the cursor is a video of someone
+/// else's screen. It is not fine for drag-to-draw, which is why ink is bound to a held modifier.
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
+pub struct Clicks {
+    pub left: u32,
+    pub right: u32,
+}
+
 /// Everything the app needs from the operating system.
 pub trait Platform {
     /// Global cursor position, top-left origin, logical units. `None` if it cannot be read.
@@ -65,6 +90,9 @@ pub trait Platform {
 
     /// Modifier keys held right now.
     fn modifiers() -> Modifiers;
+
+    /// Running count of mouse clicks. See `Clicks` — deltas only, never the absolute value.
+    fn clicks() -> Clicks;
 
     /// All active displays. First entry is not guaranteed to be primary — check `is_primary`.
     fn displays() -> Vec<Display>;

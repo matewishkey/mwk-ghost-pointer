@@ -46,6 +46,47 @@ let alpha = 0;
 
 const trail: { x: number; y: number; t: number }[] = [];
 
+/** How long a click pulse lives. Long enough to notice across a laggy video, short enough not
+ *  to pile up when someone clicks repeatedly. */
+const PULSE_MS = 620;
+const pulses: { x: number; y: number; b: number; t: number }[] = [];
+
+listen<{ x: number; y: number; b: number }>("pulse", (ev) => {
+  const { x, y, b } = ev.payload;
+  pulses.push({
+    x: Math.max(0, Math.min(1, x)) * W,
+    y: Math.max(0, Math.min(1, y)) * H,
+    b,
+    t: performance.now(),
+  });
+  // A stuck sender must not be able to grow this without bound.
+  if (pulses.length > 40) pulses.splice(0, pulses.length - 40);
+});
+
+/** Expanding ring where a click landed. Left is one ring, right is two — they have to be
+ *  distinguishable across a compressed video stream, so the difference is structural rather
+ *  than a change of shade. */
+function drawPulse(now: number, p: { x: number; y: number; b: number; t: number }): void {
+  const k = (now - p.t) / PULSE_MS; // 0 -> 1
+  if (k >= 1) return;
+  const ease = 1 - Math.pow(1 - k, 3); // fast out, slow settle
+  const fade = (1 - k) * (1 - k);
+  const rings = p.b === 2 ? [1, 0.58] : [1];
+  for (const scale of rings) {
+    ctx.strokeStyle = `rgba(${RED},${(0.85 * fade).toFixed(3)})`;
+    ctx.lineWidth = 3 * (1 - k * 0.55);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 6 + ease * 46 * scale, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // A white inner ring keeps it readable on a dark desktop, the same trick the ghost uses.
+  ctx.strokeStyle = `rgba(255,255,255,${(0.5 * fade).toFixed(3)})`;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 6 + ease * 46 + 2.5, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
 listen<{ x: number; y: number; a: number }>("ghost", (ev) => {
   const { x, y, a } = ev.payload;
   // Normalised 0..1 in, this window's pixels out. The window covers exactly the display the
@@ -74,6 +115,10 @@ function frame(now: number): void {
   while (trail.length && now - trail[0].t > TRAIL_MS) trail.shift();
 
   ctx.clearRect(0, 0, W, H);
+
+  // Pulses outlive the ghost on purpose: disarming should not wipe a click you just made.
+  while (pulses.length && now - pulses[0].t > PULSE_MS) pulses.shift();
+  for (const p of pulses) drawPulse(now, p);
 
   if (alpha > 0.004 && render) {
     ctx.lineCap = "round";
