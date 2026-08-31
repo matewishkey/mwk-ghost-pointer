@@ -31,7 +31,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": "all",
     "category": "Productivity",
     "shortDescription": "Point at things on someone else's screen",
     "longDescription": "Ghost Pointer draws a ghost cursor on someone else's desktop while they share their screen. No screen capture, no remote control, no input injection — it only ever draws.",

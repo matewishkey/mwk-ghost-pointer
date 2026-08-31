@@ -84,6 +84,10 @@ pub struct Clicks {
 }
 
 /// Everything the app needs from the operating system.
+///
+/// **Not every method is needed by every role.** The guest only ever calls `displays()`; the
+/// cursor, modifiers and clicks are read solely by the pointing side. That is what makes a
+/// viewer-only build on a platform possible long before a complete one — see `windows.rs`.
 pub trait Platform {
     /// Global cursor position, top-left origin, logical units. `None` if it cannot be read.
     fn cursor_position() -> Option<Point>;
@@ -95,7 +99,11 @@ pub trait Platform {
     fn clicks() -> Clicks;
 
     /// All active displays. First entry is not guaranteed to be primary — check `is_primary`.
-    fn displays() -> Vec<Display>;
+    ///
+    /// Takes the app handle because Windows answers this from Tauri's own monitor list rather
+    /// than from Win32 directly. The trait widened rather than the app forking — which is the
+    /// rule this module exists to enforce. macOS ignores it.
+    fn displays(app: &tauri::AppHandle) -> Vec<Display>;
 }
 
 #[cfg(target_os = "macos")]

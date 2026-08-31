@@ -1,0 +1,74 @@
+# Builds the Windows installer.
+#
+# This exists because the project has no Windows machine. CI is the only thing that can compile
+# for Windows here — and it is worth being clear that a green run proves the code *builds*, not
+# that the overlay is transparent or click-through on a real desktop. Only a real machine can
+# answer that.
+name: Windows build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # build.rs stamps the commit into the footer; a shallow clone still resolves HEAD,
+          # but fetch the tag/history so the short sha matches what the repo shows.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Build
+        working-directory: app
+        run: npm run tauri build
+
+      # Tauri writes NSIS to bundle/nsis and WiX to bundle/msi. Collect whichever exist rather
+      # than assuming, so a change of bundler does not silently produce an empty artifact.
+      - name: Collect installers
+        working-directory: app
+        shell: bash
+        run: |
+          mkdir -p ../dist-windows
+          found=0
+          for d in src-tauri/target/release/bundle/nsis src-tauri/target/release/bundle/msi; do
+            if [ -d "$d" ]; then
+              cp -v "$d"/*.exe "$d"/*.msi ../dist-windows/ 2>/dev/null || true
+            fi
+          done
+          ls -la ../dist-windows
+          found=$(ls -1 ../dist-windows | wc -l)
+          if [ "$found" -eq 0 ]; then
+            echo "::error::no installer was produced — the bundler wrote nothing"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ghost-pointer-windows
+          path: dist-windows/*
+          if-no-files-found: error

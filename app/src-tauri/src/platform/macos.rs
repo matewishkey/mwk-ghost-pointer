@@ -119,7 +119,7 @@ impl Platform for Impl {
         }
     }
 
-    fn displays() -> Vec<Display> {
+    fn displays(_app: &tauri::AppHandle) -> Vec<Display> {
         let Ok(ids) = CGDisplay::active_displays() else {
             return Vec::new();
         };

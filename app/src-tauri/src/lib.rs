@@ -74,6 +74,8 @@ fn build_info() -> serde_json::Value {
         "version": env!("CARGO_PKG_VERSION"),
         "commit": env!("GP_COMMIT"),
         "built": env!("GP_BUILT"),
+        // The UI needs this to hide the pointing side on platforms that cannot send yet.
+        "os": std::env::consts::OS,
     })
 }
 
@@ -86,9 +88,10 @@ fn build_info() -> serde_json::Value {
 #[tauri::command]
 fn displays(app: AppHandle) -> Vec<Display> {
     let (tx, rx) = std::sync::mpsc::channel();
+    let handle = app.clone();
     if app
         .run_on_main_thread(move || {
-            let _ = tx.send(platform::Impl::displays());
+            let _ = tx.send(platform::Impl::displays(&handle));
         })
         .is_err()
     {

@@ -56,6 +56,8 @@ let wasArmed = false;
  */
 let prevClicks: { left: number; right: number } | null = null;
 let connected = false;
+/** Which OS this build is running on, from `build_info`. Empty until `boot()` has answered. */
+let os = "";
 
 const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
 
@@ -199,7 +201,19 @@ void listen<Cursor>("cursor", (ev) => {
 });
 
 void listen("hotkey", () => {
-  if (role === "point" && armMode === "tap") setArmed(!armed);
+  if (role === "point" && armMode === "tap") {
+    setArmed(!armed);
+    return;
+  }
+  if (role === "view" && connected) {
+    // The guest's escape hatch. A transparent click-through overlay is one bug away from being
+    // an opaque one that eats every click, and at that point the mouse cannot reach the app to
+    // fix it. A global hotkey still gets through, so there is always a way out without a
+    // force-quit. Cheap insurance; keep it even once the overlay is well proven.
+    relay.close();
+    void teardown();
+    setStatus("", "Overlay closed with the hotkey");
+  }
 });
 
 function setArmed(v: boolean): void {
@@ -216,6 +230,9 @@ function setArmed(v: boolean): void {
 async function startViewing(): Promise<void> {
   const d = chosenDisplay();
   if (!d) return;
+  // Registered for the guest too — not to arm anything, but as the way out if the overlay
+  // misbehaves. See the `hotkey` listener.
+  await applyHotkey(el.hotkey.value || DEFAULT_HOTKEY);
   relay.sendGeo({ w: d.w, h: d.h, label: d.label });
   await invoke("open_overlay", { x: d.x, y: d.y, w: d.w, h: d.h });
   el.guestLive.hidden = false;
@@ -364,7 +381,8 @@ el.connect.onclick = async () => {
 /** Stamp the footer with exactly which build this is — first question of any bug report. */
 async function showBuild(): Promise<void> {
   try {
-    const b = await invoke<{ version: string; commit: string; built: string }>("build_info");
+    const b = await invoke<{ version: string; commit: string; built: string; os: string }>("build_info");
+  os = b.os;
     const when = new Date(Number(b.built) * 1000);
     const stamp = when.toLocaleString(undefined, {
       day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
@@ -374,6 +392,25 @@ async function showBuild(): Promise<void> {
   } catch {
     $("build").textContent = "";
   }
+}
+
+/**
+ * Hide what this platform cannot do yet, rather than letting someone find out by hitting it.
+ *
+ * The Windows build implements only the viewing side — `cursor_position`, `modifiers` and
+ * `clicks` are stubs there. They return empty values rather than panicking, so a hole in this
+ * guard degrades instead of crashing, but the honest thing is to not offer the button at all.
+ */
+function applyPlatformLimits(): void {
+  if (os !== "windows") return;
+  const host = el.role.querySelector('button[data-role="point"]') as HTMLButtonElement | null;
+  if (host) {
+    host.disabled = true;
+    host.title = "Pointing from Windows is not built yet — this build can receive only.";
+    const sub = host.querySelector("span");
+    if (sub) sub.textContent = "Not on Windows yet";
+  }
+  if (role === "point") setRole("view");
 }
 
 function loadAim(): Rect | null {
@@ -388,7 +425,8 @@ function loadAim(): Rect | null {
 // ---------------------------------------------------------------------------------------------
 
 async function boot(): Promise<void> {
-  void showBuild();
+  await showBuild();
+  applyPlatformLimits();
   displays = await invoke<Display[]>("displays");
   el.display.innerHTML = "";
   for (const d of displays) {
