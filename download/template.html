@@ -86,20 +86,15 @@
 </header>
 
 <div class="dl">
-  <div class="btns">
-    <a class="btn" href="/{{DMG}}" download>Download for macOS</a>
-    <a class="btn" href="/{{WIN}}" download>Download for Windows</a>
-  </div>
+  <a class="btn" href="/{{DMG}}" download>Download for macOS</a>
   <div class="facts">
-    <b>macOS</b> &nbsp;{{VERSION}} &middot; {{SIZE}} &middot; universal (Apple&nbsp;silicon + Intel) &middot; macOS&nbsp;11+<br>
-    <b>Windows</b> &nbsp;{{VERSION}} &middot; {{WINSIZE}} &middot; 64-bit &middot; Windows&nbsp;10/11
-    &middot; <a href="/{{WINMSI}}" download>.msi</a><br>
-    built {{DATE}} &middot; macOS sha256 {{SHA}}
+    <b>{{VERSION}}</b> &middot; {{SIZE}} &middot; universal (Apple&nbsp;silicon + Intel) &middot; macOS&nbsp;11+<br>
+    built {{DATE}} &middot; sha256 {{SHA}}
   </div>
-  <p class="nowin"><b>The Windows build can only receive.</b> Someone on Windows can have the
-  ghost drawn on their screen, and that part works the same as it does on a Mac. Pointing
-  <i>from</i> Windows is not built yet, so that side of the app is switched off there. One
-  codebase either way &mdash; the sending half just has not been written for Windows.</p>
+  <p class="nowin"><b>The Windows build has been withdrawn.</b> It was up briefly on 31 August
+  and it does not work &mdash; it stops responding. If you installed it, uninstall it; it is not
+  safe to leave running. A fixed one will go up once it has been tested on a real Windows
+  machine rather than only compiled for one.</p>
 </div>
 
 <h2>What it is</h2>

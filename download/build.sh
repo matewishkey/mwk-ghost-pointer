@@ -24,22 +24,9 @@ cp "$here/target.html" "$out/"
 size="$(du -h "$out/$name" | cut -f1 | tr -d ' ')"
 sha="$(shasum -a 256 "$out/$name" | cut -c1-16)"
 
-# Windows installers come from CI — nothing on this Mac can build them. `download/windows/` is
-# where `gh run download` drops them, and it is gitignored: installers are build output, not
-# source. Missing is a hard error rather than a page that quietly offers a dead link.
-winexe="$(ls -t "$here"/windows/*.exe 2>/dev/null | head -1 || true)"
-winmsi="$(ls -t "$here"/windows/*.msi 2>/dev/null | head -1 || true)"
-if [ -z "$winexe" ] || [ -z "$winmsi" ]; then
-  echo "no Windows installer in $here/windows/ — fetch the CI artifact first:" >&2
-  echo "  gh run download <run-id> -R matewishkey/mwk-ghost-pointer -n ghost-pointer-windows -D download/windows" >&2
-  exit 1
-fi
-# Spaces in a filename become %20 in a URL and break the download attribute in some browsers.
-winname="GhostPointer-${version}-windows-setup.exe"
-winmsiname="GhostPointer-${version}-windows.msi"
-cp "$winexe" "$out/$winname"
-cp "$winmsi" "$out/$winmsiname"
-winsize="$(du -h "$out/$winname" | cut -f1 | tr -d ' ')"
+# No Windows installer is published right now — the 31 Aug build stopped responding on a real
+# machine and was withdrawn the same evening. The CI workflow still builds it; nothing copies it
+# here until it has actually been run on Windows.
 
 # The default hotkey is defined once, in main.ts. Read it rather than restating it here — a
 # restated fact drifts, and a drifted fact on a download page is a support request.
@@ -49,12 +36,22 @@ sed -e "s|{{DMG}}|$name|g" \
     -e "s|{{VERSION}}|v$version|g" \
     -e "s|{{SIZE}}|$size|g" \
     -e "s|{{SHA}}|${sha}…|g" \
-    -e "s|{{WIN}}|$winname|g" \
-    -e "s|{{WINMSI}}|$winmsiname|g" \
-    -e "s|{{WINSIZE}}|$winsize|g" \
     -e "s|{{DATE}}|$(date -u +'%-d %b %Y')|g" \
     -e "s|{{HOTKEY}}|$hotkey|g" \
     "$here/template.html" > "$out/index.html"
+
+# Withdrawn downloads have to be redirected, not merely deleted.
+#
+# Cloudflare Pages keeps an asset addressable across deployments in a project: removing a file
+# from the uploaded directory does NOT stop it being served, which is how a broken Windows build
+# stayed downloadable after being "pulled" on 31 Aug. Pages also answers 200 with index.html for
+# anything it cannot find, so a status-code check cannot tell you either way — compare content.
+cat > "$out/_redirects" <<'REDIR'
+# Windows 0.1.0 made the whole desktop unresponsive. Send anyone holding a direct link to the
+# page, which explains why it is gone, rather than to a file that will lock their machine.
+/GhostPointer-0.1.0-windows-setup.exe  /  302
+/GhostPointer-0.1.0-windows.msi        /  302
+REDIR
 
 # Belt and braces: an unsubstituted token would ship a literal {{...}} to the page.
 if grep -q '{{' "$out/index.html"; then
@@ -63,7 +60,4 @@ if grep -q '{{' "$out/index.html"; then
   exit 1
 fi
 
-echo "$out ready"
-echo "  macOS   $name ($size)"
-echo "  Windows $winname ($winsize) + $winmsiname"
-echo "  hotkey  $hotkey"
+echo "$out ready — $name ($size), hotkey $hotkey"
