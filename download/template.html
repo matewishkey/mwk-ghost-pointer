@@ -40,6 +40,7 @@
   a.btn{display:inline-flex;align-items:center;gap:10px;background:var(--red-field);color:#fff;
         text-decoration:none;font:600 16px/1 var(--body);padding:15px 22px;border-radius:11px}
   a.btn:hover{opacity:.9}
+  .btns{display:flex;gap:12px;flex-wrap:wrap}
   .facts{margin:14px 0 0;font:400 12.5px/1.7 var(--mono);color:var(--mute)}
   .facts b{color:var(--ink);font-weight:500}
   /* Said at the download, not buried in a list at the bottom. Someone on Windows should learn
@@ -85,14 +86,20 @@
 </header>
 
 <div class="dl">
-  <a class="btn" href="/{{DMG}}" download>Download for macOS</a>
-  <div class="facts">
-    <b>{{VERSION}}</b> &middot; {{SIZE}} &middot; universal (Apple&nbsp;silicon + Intel) &middot; macOS&nbsp;11+<br>
-    built {{DATE}} &middot; sha256 {{SHA}}
+  <div class="btns">
+    <a class="btn" href="/{{DMG}}" download>Download for macOS</a>
+    <a class="btn" href="/{{WIN}}" download>Download for Windows</a>
   </div>
-  <p class="nowin"><b>macOS only for now.</b> There is no Windows build yet &mdash; not a smaller
-  download, none at all. It is planned and the app is written so Windows drops into the same
-  codebase rather than becoming a second app, but nothing is ready to install today.</p>
+  <div class="facts">
+    <b>macOS</b> &nbsp;{{VERSION}} &middot; {{SIZE}} &middot; universal (Apple&nbsp;silicon + Intel) &middot; macOS&nbsp;11+<br>
+    <b>Windows</b> &nbsp;{{VERSION}} &middot; {{WINSIZE}} &middot; 64-bit &middot; Windows&nbsp;10/11
+    &middot; <a href="/{{WINMSI}}" download>.msi</a><br>
+    built {{DATE}} &middot; macOS sha256 {{SHA}}
+  </div>
+  <p class="nowin"><b>The Windows build can only receive.</b> Someone on Windows can have the
+  ghost drawn on their screen, and that part works the same as it does on a Mac. Pointing
+  <i>from</i> Windows is not built yet, so that side of the app is switched off there. One
+  codebase either way &mdash; the sending half just has not been written for Windows.</p>
 </div>
 
 <h2>What it is</h2>
@@ -139,9 +146,10 @@ permission dialog. That was measured on real hardware, not assumed.</p>
 </table>
 
 <h2>What it does not do yet</h2>
-<p class="mute">Drawing, marks that stay on screen, accounts, a menu-bar icon, and reconnecting
-on its own. Clicking to pulse works; typing does not yet. This is a first build meant to answer
-one question: does pointing at someone else&rsquo;s screen actually feel good?</p>
+<p class="mute">Drawing, marks that stay on screen, accounts, a menu-bar icon, reconnecting on
+its own, and pointing from Windows. Clicking to pulse works; typing does not yet. This is a first
+build meant to answer one question: does pointing at someone else&rsquo;s screen actually feel
+good?</p>
 
 <footer>
   Ghost Pointer is by <a href="https://matewishkey.com">Mate Wish Key</a>, a brand of Mergodon Pty Ltd, Brisbane.<br>
