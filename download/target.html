@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ghost Pointer — calibration target</title>
+<link rel="icon" href="/mwk-block-512.png">
+<style>
+  /* Deliberately not brand red anywhere: red is the ghost. Everything here has to stay
+     distinguishable from the thing being measured. */
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:#fff;color:#1a2030;
+            font:500 14px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;-webkit-font-smoothing:antialiased}
+  #grid{position:fixed;inset:0;display:grid}
+  .cell{position:relative;border-right:1px solid #dfe3ec;border-bottom:1px solid #dfe3ec;
+        display:flex;align-items:center;justify-content:center}
+  .cell:nth-child(8n){border-right:0}
+  .lab{font-size:clamp(13px,1.6vw,26px);font-weight:600;color:#aeb6c8;letter-spacing:.06em;
+       transform:translateY(-1.1em)}
+  /* The dot is the actual target. The label only names it. */
+  .dot{position:absolute;left:50%;top:50%;width:9px;height:9px;margin:-4.5px 0 0 -4.5px;
+       border-radius:50%;background:#1a2030}
+  .dot::after{content:"";position:absolute;left:50%;top:50%;width:34px;height:34px;
+              margin:-17px 0 0 -17px;border:1px solid #c3cad9;border-radius:50%}
+
+  .corner{position:fixed;font-weight:700;font-size:13px;color:#1a2030;background:#ffd84d;
+          padding:4px 7px;z-index:3}
+  #tl{left:0;top:0} #tr{right:0;top:0} #bl{left:0;bottom:0} #br{right:0;bottom:0}
+  .edge{position:fixed;background:#1a2030;z-index:2}
+  #ct{left:0;right:0;top:0;height:2px} #cb{left:0;right:0;bottom:0;height:2px}
+  #cl{top:0;bottom:0;left:0;width:2px} #cr{top:0;bottom:0;right:0;width:2px}
+
+  #mid{position:fixed;left:50%;top:50%;width:120px;height:120px;margin:-60px 0 0 -60px;z-index:2;
+       pointer-events:none}
+  #mid::before,#mid::after{content:"";position:absolute;background:#1a2030}
+  #mid::before{left:50%;top:0;bottom:0;width:2px;margin-left:-1px}
+  #mid::after{top:50%;left:0;right:0;height:2px;margin-top:-1px}
+
+  #info{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:5;
+        background:#1a2030;color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;
+        display:flex;gap:16px;align-items:center;box-shadow:0 4px 18px rgba(0,0,0,.18)}
+  #info b{font-weight:600}
+  #info span{opacity:.65}
+  kbd{background:#39415a;border-radius:4px;padding:2px 6px;font:inherit}
+  #hide{background:#39415a;border:0;color:#fff;font:inherit;padding:4px 9px;border-radius:5px;cursor:pointer}
+  #warn{color:#ffd84d}
+  @media (prefers-color-scheme: dark){
+    html,body{background:#fff;color:#1a2030}  /* stays light on purpose — the ghost is easier to judge */
+  }
+</style>
+</head>
+<body>
+  <div id="grid"></div>
+
+  <div class="edge" id="ct"></div><div class="edge" id="cb"></div>
+  <div class="edge" id="cl"></div><div class="edge" id="cr"></div>
+  <div id="mid"></div>
+
+  <div class="corner" id="tl">TL</div><div class="corner" id="tr">TR</div>
+  <div class="corner" id="bl">BL</div><div class="corner" id="br">BR</div>
+
+  <div id="info">
+    <span>this window</span> <b id="size">–</b>
+    <span>scale</span> <b id="dpr">–</b>
+    <b id="warn"></b>
+    <span>press <kbd>F</kbd> for full screen</span>
+    <button id="hide">hide this</button>
+  </div>
+
+<script>
+  const COLS = 8, ROWS = 5;
+  const letters = "ABCDEFGH";
+  const grid = document.getElementById("grid");
+  grid.style.gridTemplateColumns = `repeat(${COLS},1fr)`;
+  grid.style.gridTemplateRows = `repeat(${ROWS},1fr)`;
+  for (let r = 1; r <= ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const d = document.createElement("div");
+      d.className = "cell";
+      d.innerHTML = `<div class="lab">${letters[c]}${r}</div><div class="dot"></div>`;
+      grid.append(d);
+    }
+  }
+
+  const size = document.getElementById("size");
+  const dpr = document.getElementById("dpr");
+  const warn = document.getElementById("warn");
+  function readout() {
+    size.textContent = `${window.innerWidth} × ${window.innerHeight}`;
+    dpr.textContent = `${window.devicePixelRatio}×`;
+    // If this page is not filling the display, every reading taken from it is off by the
+    // browser chrome — which looks exactly like a calibration bug in the app.
+    const full = Math.abs(window.innerHeight - screen.height) < 4 && Math.abs(window.innerWidth - screen.width) < 4;
+    warn.textContent = full ? "" : `NOT FULL SCREEN — display is ${screen.width} × ${screen.height}`;
+  }
+  readout();
+  addEventListener("resize", readout);
+
+  addEventListener("keydown", (e) => {
+    if (e.key === "f" || e.key === "F") {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen().catch(() => {});
+    }
+  });
+  const info = document.getElementById("info");
+  const show = (on) => { info.style.display = on ? "flex" : "none"; };
+  document.getElementById("hide").onclick = () => show(false);
+
+  // The bar sits over the top row, which is exactly where someone will be pointing. Once the
+  // page is actually full screen the readout has done its job, so get it out of the way —
+  // briefly, so the size is still readable, then gone. `I` brings it back.
+  document.addEventListener("fullscreenchange", () => {
+    if (document.fullscreenElement) setTimeout(() => show(false), 2500);
+    else show(true);
+  });
+  addEventListener("keydown", (e) => {
+    if (e.key === "i" || e.key === "I") show(info.style.display === "none");
+  });
+</script>
+</body>
+</html>

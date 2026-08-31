@@ -17,6 +17,9 @@ name="GhostPointer-${version}-universal.dmg"
 rm -rf "$out"; mkdir -p "$out"
 cp "$dmg" "$out/$name"
 cp "$repo/app/public/brand/mwk-block-512.png" "$out/"
+# Calibration target for the test plan. Deliberately not linked from index.html — it is an
+# instrument, not a page anyone browsing needs. Public so a guest anywhere can open it.
+cp "$here/target.html" "$out/"
 
 size="$(du -h "$out/$name" | cut -f1 | tr -d ' ')"
 sha="$(shasum -a 256 "$out/$name" | cut -c1-16)"
