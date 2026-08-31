@@ -53,9 +53,24 @@ fn modifiers() -> Modifiers {
 }
 
 /// Every active display, for the viewer's picker and the `geo` message.
+///
+/// Marshalled onto the main thread because the macOS implementation asks AppKit for the monitor
+/// names, and AppKit's screen list is main-thread-only. Tauri dispatches sync commands onto a
+/// worker, so blocking on the main thread from here is safe — the reverse would deadlock, so
+/// nothing already running on the main thread may call this.
 #[tauri::command]
-fn displays() -> Vec<Display> {
-    platform::Impl::displays()
+fn displays(app: AppHandle) -> Vec<Display> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    if app
+        .run_on_main_thread(move || {
+            let _ = tx.send(platform::Impl::displays());
+        })
+        .is_err()
+    {
+        return Vec::new();
+    }
+    // A display list that never arrives must not wedge the UI thread that asked for it.
+    rx.recv_timeout(Duration::from_secs(2)).unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------------------------

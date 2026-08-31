@@ -107,6 +107,13 @@ handful of files that are shared.
 - **No screen capture, ever.** The app draws and reads its own cursor. Asking for Screen
   Recording permission would wreck the "lightweight, nothing scary" pitch that is the whole
   product.
+- **Zero permissions, on both sides, is a hard constraint — not a nice-to-have** (2026-08-31).
+  It has survived every feature so far, including typing, and each time only because a design
+  was chosen that did not need one. Before adding anything that wants a TCC grant, assume there
+  is a design that does not and go find it. See `app/m0-findings.md` for which gestures are free.
+- **Annotation is in scope now** (mate, 2026-08-31): click, draw, type. This reverses
+  `docs/spec.md` § MVP scope, which still lists it as out — the spec is the relay side's to
+  change, so it is tracked in issue #6 rather than edited here.
 
 ## Build order
 

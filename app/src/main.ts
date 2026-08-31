@@ -48,6 +48,14 @@ let connected = false;
 
 const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
 
+/** Which display contains a point in the global desktop space. Displays never overlap, so the
+ *  first hit is the only hit. */
+const displayAt = (x: number, y: number): Display | null =>
+  displays.find((d) => x >= d.x && x < d.x + d.w && y >= d.y && y < d.y + d.h) ?? null;
+
+const primaryDisplay = (): Display | null =>
+  displays.find((d) => d.is_primary) ?? displays[0] ?? null;
+
 // ---------------------------------------------------------------------------------------------
 // Relay
 // ---------------------------------------------------------------------------------------------
@@ -107,12 +115,7 @@ async function startHosting(): Promise<void> {
  */
 async function openHostOverlay(): Promise<void> {
   if (!aim) return;
-  const cx = aim.x + aim.w / 2;
-  const cy = aim.y + aim.h / 2;
-  hostScreen =
-    displays.find((d) => cx >= d.x && cx < d.x + d.w && cy >= d.y && cy < d.y + d.h) ??
-    displays.find((d) => d.is_primary) ??
-    displays[0] ?? null;
+  hostScreen = displayAt(aim.x + aim.w / 2, aim.y + aim.h / 2) ?? primaryDisplay();
   if (hostScreen) {
     await invoke("open_overlay", { x: hostScreen.x, y: hostScreen.y, w: hostScreen.w, h: hostScreen.h });
   }
@@ -170,7 +173,7 @@ async function startViewing(): Promise<void> {
 }
 
 const chosenDisplay = (): Display | null =>
-  displays.find((d) => d.id === el.display.value) ?? displays.find((d) => d.is_primary) ?? displays[0] ?? null;
+  displays.find((d) => d.id === el.display.value) ?? primaryDisplay();
 
 // ---------------------------------------------------------------------------------------------
 // Aim rect
@@ -179,16 +182,25 @@ const chosenDisplay = (): Display | null =>
 const aimKey = () => `aim.${normaliseCode(el.code.value)}`;
 
 function showAim(): void {
-  el.aimHint.textContent = aim
-    ? `Set — ${Math.round(aim.w)} × ${Math.round(aim.h)} at ${Math.round(aim.x)}, ${Math.round(aim.y)}. Drag again any time the window moves.`
-    : "Not set yet. Drag a box around the window showing their screen.";
+  if (aim) {
+    // Name the screen it landed on. With two monitors "1200 × 750" alone does not tell you
+    // which one you framed, and redrawing on the wrong screen is a confusing five minutes.
+    const on = displayAt(aim.x + aim.w / 2, aim.y + aim.h / 2);
+    el.aimHint.textContent =
+      `Set — ${Math.round(aim.w)} × ${Math.round(aim.h)}` +
+      (on ? ` on ${on.label}` : "") +
+      ". Drag again any time that window moves.";
+  } else {
+    el.aimHint.textContent = "Not set yet. Drag a box around the window showing their screen.";
+  }
   el.aim.textContent = aim ? "Redraw the aim area" : "Set the aim area";
 }
 
 el.aim.onclick = async () => {
+  // The picker opens on whichever screen the mouse is on — move to the screen showing their
+  // video, then click. `showAim` names the one you framed, so there is no guessing afterwards.
   const p = await invoke<{ x: number; y: number } | null>("cursor_position");
-  const under = p ? displays.find((d) => p.x >= d.x && p.x < d.x + d.w && p.y >= d.y && p.y < d.y + d.h) : null;
-  const d = under ?? displays.find((x) => x.is_primary) ?? displays[0];
+  const d = (p ? displayAt(p.x, p.y) : null) ?? primaryDisplay();
   if (!d) return;
   await invoke("open_aim", {
     x: d.x, y: d.y, w: d.w, h: d.h,

@@ -69,6 +69,47 @@ needs**, on either side. First-run onboarding has nothing to ask for.
   ghost lands mirrored. Issue #5 proposes `geo` carry `backingScaleFactor`; the app does not
   currently need it, because the guest maps into its own overlay in logical units.
 
+## M2 annotation — decided 2026-08-31, blocked on the relay (#6)
+
+Mate expanded the scope: click, draw and type on the guest's screen. This **reverses**
+`../docs/spec.md` § MVP scope, which lists drawing and persistent marks as out. His call, made
+explicitly. `relay/src/index.ts` ends its switch with `default: return`, so none of it can ship
+until #6 lands — do not start the wire work against a guessed shape.
+
+Settled, and not to be relitigated:
+
+- **Gestures come from held modifiers, not mouse buttons.** The M2 spike proved buttons are
+  readable with no permission (`m0-findings.md` § Addendum) — but reading is not owning: the
+  click still lands in whatever is under the cursor, so hold-to-draw over a Zoom window also
+  drags inside Zoom. Movement, held modifiers and registered hotkeys are the only gestures that
+  are both free *and* leak-free.
+- **Typing is a composer window, not a keyboard grab.** Point, press the text hotkey, the ghost
+  freezes as the anchor, type into a real focused window, Enter sends (Shift+Enter for a
+  newline), pointing resumes. Intended shape is a **non-activating panel** so the video call
+  behind it does not lose focus — unverified through Tauri so far. This is what keeps the app at
+  **zero permissions on both sides**, which is the whole pitch; do not trade it away.
+- **Text is for handing over things to paste** — commands, URLs. So the guest keeps it as *text*
+  and gets a **Copy button in their own window**; the overlay stays click-through and pure. Never
+  write to their clipboard unprompted, and never show a truncated command as copyable.
+- **Text streams live** as it is typed. **Right-click clears everything** — no undo stack yet.
+- **Marks have two modes, both wanted:** persistent and fading. That is a per-mark flag on the
+  wire, not a room setting, so switching mid-session leaves existing marks alone.
+
+## Displays — AppKit knows things CoreGraphics does not
+
+`displays()` joins the two: bounds and ids from `CGDisplay` (top-left origin, the app's
+convention), names and scale from `NSScreen`. Two traps, both hit for real:
+
+- **`pixels_wide / bounds.width` does not give you the scale.** On a Studio Display running a
+  scaled 2560x1440 mode CoreGraphics reports 2560 device pixels, so that expression returns 1.0
+  while the real backing scale is 2. Ask `NSScreen.backingScaleFactor`.
+- **AppKit is main-thread-only** and Tauri runs sync commands on a worker, so `displays()`
+  marshals through `run_on_main_thread`. Nothing already on the main thread may call it.
+
+Both sides pick their own display, one at a time. The guest picks from the dropdown; the host's
+aim picker opens on whichever screen the mouse is on and then *names* the screen it framed. A
+ghost that crosses two of the guest's displays is not supported and was not asked for.
+
 ## Known trap, do not solve yet
 
 Tauri needs `macOSPrivateApi` for transparent webview windows — it is on in `tauri.conf.json`,
