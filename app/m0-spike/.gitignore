@@ -3,6 +3,9 @@ m0
 pixel
 presskey
 M0Spike.app/
+M2Spike.app/
+pressmouse
+m2
 *.log
 *.png
 *.out

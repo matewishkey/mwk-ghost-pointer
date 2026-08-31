@@ -165,3 +165,55 @@ This is the Carbon API underneath Tauri's `global-shortcut` plugin, so
 
 `build.sh` re-signs, which resets the app's TCC identity — so the clean room stays clean on
 every rebuild. Grant this spike nothing; the whole point is that it never needs anything.
+
+---
+
+# Addendum — 2026-08-31: the mouse buttons (M2 spike)
+
+M2 wants click, drag-to-draw and typing while pointing. That raised one question M0 never
+asked: **can an app with no permissions see the mouse BUTTONS, the way it can already see the
+modifier flags?**
+
+Instrument: `m0-spike/m2.swift`, wrapped by the same clean-room rules as everything above —
+its own bundle id, launched with `open`, so it is its own TCC responsible process.
+`m0-spike/pressmouse` synthesises the input from the trusted terminal while the untrusted app
+watches, which is the same isolation `presskey` gives for modifiers.
+
+    baseline TCC   Accessibility=no  InputMonitoring=no  PostEvents=no
+    left button  observed: YES   (56 ticks held)
+    right button observed: YES   (60 ticks held)
+    modifiers    observed: YES   (359 ticks held)   <- positive control
+
+Both buttons were held for one second and the poll counted 56 and 60 ticks at 60 Hz. That is
+the signal, at the right duration, not noise. The modifier poll is the positive control: M0
+measured it working with no grants, so had it stayed silent the run would have proved nothing.
+
+**`CGEventSource.buttonState` needs no permission.** Same family as `flagsState`, same answer.
+
+## What that does and does not buy
+
+Reading a button is not the same as owning it. **The click still goes to whatever is under the
+cursor** — hold the left button over the video window to draw, and you are also dragging inside
+Zoom. So the interesting table is not "can we read it" but "can we read it *and* does it leak":
+
+| Gesture | Readable with zero grants | Leaks to the app underneath |
+|---|---|---|
+| Mouse movement | yes — M0 | no |
+| Modifier held (⌥ ⌃ ⇧ ⌘) | yes — M0 | no |
+| Mouse button held | **yes — this spike** | **yes, it really clicks** |
+| Letter/number keys | no — needs Input Monitoring | yes |
+| Registered global hotkey | yes — M0 | no, it is consumed |
+
+So the gestures that cost nothing *and* leak nothing are **movement, held modifiers, and
+registered hotkeys**. A design built out of those three needs no permission dialog and never
+takes the host's screen away from them.
+
+**Typing is the one exception and there is no way around it.** Reading ordinary keys globally
+needs Input Monitoring. The alternative is to let a real window take focus while text is being
+entered — which costs no permission, but does mean the host's screen is briefly in a mode. That
+is a per-feature price, not a whole-app one: only text mode pays it.
+
+**Windows is unverified.** `GetAsyncKeyState` is documented to read keys and buttons globally
+with no permission model at all, which would make Windows a superset of these constraints
+rather than a subset — but nobody has run it, and this project has no Windows machine yet.
+Design to the macOS limits and Windows should follow; do not assume the reverse.

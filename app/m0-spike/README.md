@@ -9,6 +9,11 @@ delete it once M1 stands on its own.**
     ./run-deliver.sh  # modifier-delivery test -> deliver.log
     ./run-clickthru.sh  # click-through, with control -> clickthru.log
 
+    # M2 addendum (2026-08-31): can a zero-grant app see the mouse BUTTONS?
+    swiftc -O m2.swift -o m2 && swiftc -O pressmouse.swift -o pressmouse
+    open -n M2Spike.app --args --log=$PWD/m2.log && ./pressmouse <x> <y>   # pick a harmless point
+    # answer: yes. Written up in ../m0-findings.md.
+
 ## Two-machine test rig (added 2026-08-25)
 
 The spike also speaks the real wire protocol, so the whole path can be exercised before the
