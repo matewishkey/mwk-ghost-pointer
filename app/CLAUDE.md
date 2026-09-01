@@ -132,13 +132,23 @@ five lines and it is why the failure was invisible.
 
 1. **Verify the fix on macOS too.** `open_overlay` is shared and the reordering is unrun there.
    Regression to check: overlay still appears, still passes clicks.
-2. **Confirm the ex-style readback compiles on Windows.** It was written blind; CI is the
-   compiler. `gh run list` after a push.
-3. **Test click-through in a bounded way.** Do not connect a room to find out. The safe shape
-   is an overlay that closes itself after ~10s, so a failure costs ten seconds instead of Task
-   Manager. This was designed and never built.
-4. **There are still no logs, anywhere.** No file, no crash report, nothing. That is why 31 Aug
-   produced no evidence. `tauri-plugin-log` plus a "copy diagnostics" button was the plan.
+2. ~~Confirm the ex-style readback compiles on Windows.~~ **Done, 1 Sep 2026.** CI is green
+   with it (`gh run list`), and see point 3 — it now has real-hardware confirmation too, not
+   just a compile.
+3. ~~Test click-through in a bounded way.~~ **Done, 1 Sep 2026, on a real Windows machine.** The
+   "Test click-through" button on the guest display picker (`app/src/main.ts`) arms the overlay
+   against no room and force-closes it on a 10s JS timer, so a failure costs ten seconds instead
+   of Task Manager. Result: **click-through works** — the desktop underneath correctly took
+   clicks. It surfaced a different bug instead: the system cursor was invisible the whole time
+   the overlay was up. Root cause: `overlay.html` set `cursor: none` on the click-through window;
+   WebView2 appears to decide the visible cursor icon for a screen point independently of the
+   `WS_EX_TRANSPARENT` click routing, so that rule blanked the cursor even though clicks were
+   going through correctly. Removed — see the comment left in `overlay.html`. **Not yet re-run
+   against real hardware** to confirm the cursor now stays visible; do that before trusting it.
+4. ~~There are still no logs, anywhere.~~ **Done, 1 Sep 2026.** `tauri-plugin-log` writes to
+   stdout in dev and a file everywhere else; `open_overlay`/`arm_click_through`/`close_overlay`
+   are instrumented. A `diagnostics` command bundles build info with the log tail, wired to a
+   "Copy diagnostics" button in the footer.
 
 ### Escape hatch, already shipped
 
