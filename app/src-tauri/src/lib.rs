@@ -282,23 +282,45 @@ fn open_overlay(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), St
     }
 
     log::info!("open_overlay: no existing window, building one");
-    let win = WebviewWindowBuilder::new(&app, "overlay", WebviewUrl::App("overlay.html".into()))
-        .title("Ghost Pointer overlay")
-        .position(x, y)
-        .inner_size(w, h)
-        .transparent(true)
-        .decorations(false)
-        .shadow(false)
-        .resizable(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible_on_all_workspaces(true)
-        .focused(false)
-        .accept_first_mouse(false)
-        // Hidden until proven harmless.
-        .visible(false)
-        .build()
-        .map_err(e)?;
+    #[allow(unused_mut)]
+    let mut builder =
+        WebviewWindowBuilder::new(&app, "overlay", WebviewUrl::App("overlay.html".into()))
+            .title("Ghost Pointer overlay")
+            .position(x, y)
+            .inner_size(w, h)
+            .transparent(true)
+            .decorations(false)
+            .shadow(false)
+            .resizable(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .visible_on_all_workspaces(true)
+            .focused(false)
+            .accept_first_mouse(false)
+            // Hidden until proven harmless.
+            .visible(false);
+
+    #[cfg(target_os = "windows")]
+    {
+        // `transparent(true)` presents through DirectComposition on Windows, and on a real
+        // machine over Remote Desktop (1 Sep 2026) that hung window creation outright — the log
+        // showed "no existing window, building one" and then nothing, ever, twice, across two
+        // app restarts, with no panic either. Forcing software compositing is the documented
+        // workaround for DirectComposition-under-RDP problems generally; this is the first real
+        // test of whether it is *this* problem. A distinct data directory is required alongside
+        // it: WebView2 locks browser args to the environment created for a profile folder, so
+        // sharing the main window's would silently keep using the GPU path anyway.
+        if let Ok(dir) = app.path().app_local_data_dir() {
+            builder = builder
+                .additional_browser_args(
+                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+                     --disable-gpu-compositing --disable-direct-composition",
+                )
+                .data_directory(dir.join("overlay-webview"));
+        }
+    }
+
+    let win = builder.build().map_err(e)?;
     log::info!("open_overlay: window built, arming");
 
     if let Err(why) = arm_click_through(&win) {
