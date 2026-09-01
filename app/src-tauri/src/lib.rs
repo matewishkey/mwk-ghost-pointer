@@ -204,8 +204,36 @@ fn arm_click_through(win: &WebviewWindow) -> Result<(), String> {
             return Err(msg);
         }
         log::info!("overlay armed click-through (ex-style 0x{style:X})");
+        fix_composition_mode_cursor(hwnd.0 as isize);
     }
     Ok(())
+}
+
+/// `transparent(true)` puts WebView2 into "composition mode" on Windows, and composition mode
+/// does not apply cursor updates on its own — Microsoft's own docs say the host application must
+/// set the cursor itself, "through ::SetCursor or set on the corresponding parent/ancestor HWND
+/// ... through ::SetClassLongPtr". wry does not appear to do this for transparent windows, which
+/// is why `GetCursorInfo` (see `cursor_visible`) reports the cursor as showing — nothing is
+/// hiding it — while nothing is visible — nobody is asserting it either. True on a real
+/// machine's own physical console, not just over Remote Desktop, so this was never an RDP
+/// artifact. Setting the window class's default cursor is the documented fix and does not need a
+/// custom `WM_SETCURSOR` handler. Applies to every `transparent(true)` window, not just the
+/// click-through overlay — the aim picker uses composition mode too.
+#[cfg(target_os = "windows")]
+fn fix_composition_mode_cursor(hwnd: isize) {
+    extern "system" {
+        fn LoadCursorW(hinstance: isize, cursor_name: isize) -> isize;
+        fn SetClassLongPtrW(hwnd: isize, index: i32, new_long: isize) -> isize;
+    }
+    const IDC_ARROW: isize = 32512;
+    const GCLP_HCURSOR: i32 = -12;
+
+    let arrow = unsafe { LoadCursorW(0, IDC_ARROW) };
+    if arrow != 0 {
+        unsafe { SetClassLongPtrW(hwnd, GCLP_HCURSOR, arrow) };
+    } else {
+        log::warn!("fix_composition_mode_cursor: LoadCursorW(IDC_ARROW) failed");
+    }
 }
 
 /// Ask the OS whether the system cursor is currently showing — objective, not "look at your
@@ -324,43 +352,21 @@ fn open_overlay_on_main_thread(
 /// Called only from `.setup()` — see `open_overlay_on_main_thread` for why creating this window
 /// from a live command is the thing to avoid, not creating it at all.
 fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
-    #[allow(unused_mut)]
-    let mut builder =
-        WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("overlay.html".into()))
-            .title("Ghost Pointer overlay")
-            .inner_size(1.0, 1.0)
-            .transparent(true)
-            .decorations(false)
-            .shadow(false)
-            .resizable(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .visible_on_all_workspaces(true)
-            .focused(false)
-            .accept_first_mouse(false)
-            .visible(false);
-
-    #[cfg(target_os = "windows")]
-    {
-        // DIAGNOSTIC (1 Sep 2026): the click-through self-test passes and `GetCursorInfo`
-        // reports the cursor as showing, but over the RDP session used to test this machine the
-        // cursor is not actually visible on screen — a state GetCursorInfo cannot see, since it
-        // queries this machine's own OS, not what RDP's virtual display driver transmits.
-        // `transparent(true)` presents through DirectComposition, a known source of RDP cursor-
-        // transmission problems independent of anything the app itself gets right. Forcing
-        // software compositing is the standard workaround; this is the first test of whether it
-        // is *this* problem, now that the hang that made it impossible to test is fixed.
-        if let Ok(dir) = app.path().app_local_data_dir() {
-            builder = builder
-                .additional_browser_args(
-                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
-                     --disable-gpu-compositing --disable-direct-composition",
-                )
-                .data_directory(dir.join("overlay-webview"));
-        }
-    }
-
-    let win = builder.build().map_err(e)?;
+    let win = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("overlay.html".into()))
+        .title("Ghost Pointer overlay")
+        .inner_size(1.0, 1.0)
+        .transparent(true)
+        .decorations(false)
+        .shadow(false)
+        .resizable(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible_on_all_workspaces(true)
+        .focused(false)
+        .accept_first_mouse(false)
+        .visible(false)
+        .build()
+        .map_err(e)?;
     // Armed once up front too, so a `close_overlay` -> `open_overlay` cycle that skips resizing
     // (same display picked again) does not show an un-armed window even for one frame.
     arm_click_through(&win)
@@ -411,7 +417,8 @@ fn open_aim(app: AppHandle, x: f64, y: f64, w: f64, h: f64, ratio: f64) -> Resul
 /// `create_overlay_window` for why creating this window from a live command is the thing to
 /// avoid, not creating it at all.
 fn create_aim_window(app: &AppHandle) -> Result<(), String> {
-    WebviewWindowBuilder::new(app, "aim", WebviewUrl::App("aim.html".into()))
+    #[allow(unused_variables)]
+    let win = WebviewWindowBuilder::new(app, "aim", WebviewUrl::App("aim.html".into()))
         .title("Set the aim area")
         .inner_size(1.0, 1.0)
         .transparent(true)
@@ -424,6 +431,12 @@ fn create_aim_window(app: &AppHandle) -> Result<(), String> {
         .visible(false)
         .build()
         .map_err(e)?;
+    // `transparent(true)` here too — see `fix_composition_mode_cursor` for why that alone
+    // leaves the cursor invisible without this.
+    #[cfg(target_os = "windows")]
+    if let Ok(hwnd) = win.hwnd() {
+        fix_composition_mode_cursor(hwnd.0 as isize);
+    }
     Ok(())
 }
 

@@ -195,18 +195,32 @@ see the "Decisions already made" section at the top of the root `CLAUDE.md`.
   deliberate "does it work without it" test on real hardware before trusting either way.
 - The cursor-invisible-over-RDP fix below is untested by a human looking at the screen.
 
-### Cursor invisible over RDP even though click-through works — untested fix, 1 Sep 2026
+### Cursor invisible even though click-through works — found and fixed, 1 Sep 2026
 
 The click-through self-test passes and `GetCursorInfo` (a Windows-only `cursor_visible` command
-added for this) reports the cursor as showing, but testing this machine over the same RDP session
-used throughout this debugging, the person watching still couldn't see it. `GetCursorInfo` cannot
-see this — it queries this machine's own OS state, not what RDP's virtual display driver actually
-transmits. `transparent(true)` presents through DirectComposition on Windows, a known source of
-RDP cursor-transmission problems independent of anything the app does wrong. `create_overlay_window`
-now forces software compositing (`--disable-gpu-compositing --disable-direct-composition` via
-`additional_browser_args`, with its own `data_directory` since WebView2 locks browser args to the
-environment created for a profile folder). **Not yet confirmed against real eyes on the screen** —
-this is the next thing to verify, not something to trust because it compiled and didn't hang.
+added for this) reports the cursor as showing, but nothing was actually visible on screen —
+first suspected as an RDP-transmission artifact (`GetCursorInfo` only sees this machine's own OS
+state, not what a remote viewer's display driver renders), and a DirectComposition-software-
+compositing workaround was tried on that theory. **Wrong** — confirmed real on this machine's own
+physical console too, not just over RDP, so it was never an RDP artifact and the compositing
+workaround (`additional_browser_args`/`data_directory`) has been removed; it didn't address the
+actual cause and only added complexity.
+
+**The real cause:** `transparent(true)` puts WebView2 into "composition mode" on Windows, and
+Microsoft's own docs are explicit that composition mode does **not** apply cursor updates on its
+own — the host application must set the cursor itself, "through `::SetCursor` or set on the
+corresponding parent/ancestor HWND ... through `::SetClassLongPtr`". wry does not appear to do
+this for transparent windows. That is exactly consistent with everything observed: `GetCursorInfo`
+reports "showing" because nothing is hiding it, while nothing is visible because nobody is
+asserting it either — true regardless of RDP.
+
+**Fix:** `fix_composition_mode_cursor` (`lib.rs`) calls `SetClassLongPtrW(hwnd, GCLP_HCURSOR,
+LoadCursorW(NULL, IDC_ARROW))` on every `transparent(true)` window — both the overlay
+(`arm_click_through`, so it's reasserted on every arm) and the aim picker (`create_aim_window`,
+once, since aim is never re-armed). No custom `WM_SETCURSOR` handler needed; setting the window
+class's default cursor is the documented fix. **Not yet confirmed by a human looking at the
+screen** — verified locally only that it doesn't hang or regress anything already working; the
+actual visual result needs real eyes, same caveat as everything else in this file that says so.
 
 ### The app didn't exit when the control window closed — fixed 1 Sep 2026
 
