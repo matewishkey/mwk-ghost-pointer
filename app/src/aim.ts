@@ -4,17 +4,20 @@
 // "my cursor is at 1840,620 on my monitor" into "53% across, 31% down your screen".
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 const canvas = document.getElementById("c") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 
-// The display this sheet covers, and the guest's aspect ratio, handed over as query params —
-// the picker is a separate webview, so it cannot read the control window's state.
-const q = new URLSearchParams(location.search);
-const originX = Number(q.get("ox") ?? 0);
-const originY = Number(q.get("oy") ?? 0);
+// The display this sheet covers, and the guest's aspect ratio. Used to be query params baked
+// into this window's URL, read once at page load — but that needed a fresh window (a live
+// `.build()`) every time the picker opened, which is the exact shape that hung real Windows
+// hardware for the overlay window. This window is now built once and reused, so the numbers
+// arrive as an event instead — see `open_aim` in `lib.rs`.
+let originX = 0;
+let originY = 0;
 /** Guest display aspect ratio (w/h). 0 means the guest has not announced one yet. */
-const ratio = Number(q.get("ar") ?? 0);
+let ratio = 0;
 
 const FRAUNCES = '600 15px Fraunces, ui-serif, Georgia, serif';
 const MONO = '12px "JetBrains Mono", ui-monospace, Menlo, monospace';
@@ -126,6 +129,17 @@ function draw(): void {
 }
 
 addEventListener("resize", resize);
+
+listen<{ ox: number; oy: number; ar: number }>("aim-params", (ev) => {
+  originX = ev.payload.ox;
+  originY = ev.payload.oy;
+  ratio = ev.payload.ar;
+  // A window that is shown again for a new room must not open with the last room's frame
+  // still drawn — that reads as "already set" when it is stale.
+  start = null;
+  rect = null;
+  draw();
+});
 
 addEventListener("pointerdown", (e) => {
   start = { x: e.clientX, y: e.clientY };

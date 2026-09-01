@@ -136,8 +136,13 @@ async function startHosting(): Promise<void> {
 async function openHostOverlay(): Promise<void> {
   if (!aim) return;
   hostScreen = displayAt(aim.x + aim.w / 2, aim.y + aim.h / 2) ?? primaryDisplay();
-  if (hostScreen) {
+  if (!hostScreen) return;
+  try {
     await invoke("open_overlay", { x: hostScreen.x, y: hostScreen.y, w: hostScreen.w, h: hostScreen.h });
+  } catch (err) {
+    // Same failure shape the guest path already guards against (see startViewing) — open_overlay
+    // rejecting here used to vanish as a silent unhandled rejection, on the host role too.
+    setStatus("bad", `Overlay failed to arm: ${err}`);
   }
 }
 

@@ -254,9 +254,14 @@ fn cursor_visible() -> Option<bool> {
 /// `x`/`y`/`w`/`h` are that display's rect in the global desktop space, top-left origin,
 /// logical units — i.e. straight out of `displays()`.
 ///
-/// Dispatched explicitly onto the main thread rather than trusted to Tauri's own window-method
-/// marshaling, the same way `displays()` already has to for AppKit — cheap insurance, and a
-/// bounded 5s timeout beats an unbounded wait if the main thread is ever doing something else.
+/// Dispatched explicitly onto the main thread — **not** because these particular calls
+/// (`set_position`/`set_size`/`arm_click_through`/`show`) are known to need it the way AppKit
+/// calls in `displays()` do. They were never the thing that hung; `.build()` was, and `.build()`
+/// no longer happens here. This is kept as defense-in-depth precisely *because* the original
+/// bug was never fully explained beyond "creating a second webview from a live command" — if
+/// that turns out to generalize to these simpler window methods too under some condition not
+/// yet hit, a bounded 5s timeout beats an unbounded hang. Untested without it; remove only after
+/// deliberately trying that on real hardware, not by inference from this comment.
 #[tauri::command]
 fn open_overlay(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let (tx, rx) = std::sync::mpsc::channel();
@@ -373,21 +378,42 @@ fn close_overlay(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// The host's aim-rect picker: a translucent sheet over one display that *does* take clicks.
+/// Reposition, resize, hand over fresh params and show the aim picker `create_aim_window`
+/// already built.
 ///
-/// Always rebuilt rather than reused. The picker needs the display origin and the guest's
-/// aspect ratio, and it gets them as query params — a reused window would still be carrying
-/// the previous room's numbers, and a stale aspect ratio silently produces a stretched ghost.
+/// The display origin and the guest's aspect ratio used to be baked into the window's URL —
+/// read once at page load, which needed a fresh window (and therefore a live `.build()`) every
+/// time the picker opened. That is the exact shape of window-creation-from-a-live-command that
+/// hung real Windows hardware for `open_overlay`; nothing about `open_aim` made it exempt, it
+/// was just never reached on Windows because the host role is disabled there (`applyPlatformLimits`
+/// in `main.ts`). Same fix: the window is built once, hidden, at startup, and the numbers that
+/// used to be query params now go over as an `aim-params` event instead — see `aim.ts`.
 #[tauri::command]
 fn open_aim(app: AppHandle, x: f64, y: f64, w: f64, h: f64, ratio: f64) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("aim") {
-        win.close().map_err(e)?;
-    }
-    let url = format!("aim.html?ox={x}&oy={y}&ar={ratio}");
-    let win = WebviewWindowBuilder::new(&app, "aim", WebviewUrl::App(url.into()))
+    log::info!("open_aim: {w}x{h} at ({x},{y}), ratio {ratio}");
+    let Some(win) = app.get_webview_window("aim") else {
+        return Err("open_aim: the aim window was never created at startup".into());
+    };
+    win.set_position(LogicalPosition::new(x, y)).map_err(e)?;
+    win.set_size(LogicalSize::new(w, h)).map_err(e)?;
+    // Targeted at this window specifically, not app.emit's broadcast — the picker is the only
+    // thing that should hear it, and a stale rect from the last session must not survive to
+    // the next one (aim.ts resets its drag state on receipt).
+    win.emit("aim-params", serde_json::json!({ "ox": x, "oy": y, "ar": ratio })).map_err(e)?;
+    win.show().map_err(e)?;
+    raise_over_everything(&win);
+    win.set_focus().map_err(e)?;
+    log::info!("open_aim: shown");
+    Ok(())
+}
+
+/// Build the aim picker once, hidden, before the app is doing anything else — see
+/// `create_overlay_window` for why creating this window from a live command is the thing to
+/// avoid, not creating it at all.
+fn create_aim_window(app: &AppHandle) -> Result<(), String> {
+    WebviewWindowBuilder::new(app, "aim", WebviewUrl::App("aim.html".into()))
         .title("Set the aim area")
-        .position(x, y)
-        .inner_size(w, h)
+        .inner_size(1.0, 1.0)
         .transparent(true)
         .decorations(false)
         .shadow(false)
@@ -395,17 +421,18 @@ fn open_aim(app: AppHandle, x: f64, y: f64, w: f64, h: f64, ratio: f64) -> Resul
         .always_on_top(true)
         .skip_taskbar(true)
         .visible_on_all_workspaces(true)
+        .visible(false)
         .build()
         .map_err(e)?;
-    raise_over_everything(&win);
-    win.set_focus().map_err(e)?;
     Ok(())
 }
 
+/// Hide, never destroy — same reasoning as `close_overlay`.
 #[tauri::command]
 fn close_aim(app: AppHandle) -> Result<(), String> {
+    log::info!("close_aim");
     if let Some(win) = app.get_webview_window("aim") {
-        win.close().map_err(e)?;
+        win.hide().map_err(e)?;
     }
     Ok(())
 }
@@ -542,11 +569,19 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            // Built once, here, rather than lazily from `open_overlay` — see that function's
-            // doc comment for why. `.setup()` runs before the app is handling any live IPC,
-            // which is the one difference that mattered.
-            if let Err(why) = create_overlay_window(&app.handle().clone()) {
-                log::error!("failed to pre-create the overlay window at startup: {why}");
+            // Built once, here, rather than lazily from `open_overlay`/`open_aim` — see
+            // `create_overlay_window`'s doc comment for why. `.setup()` runs before the app is
+            // handling any live IPC, which is the one difference that mattered.
+            let handle = app.handle().clone();
+            // Fatal for the overlay: every role's core function depends on it existing, and a
+            // failure here would otherwise only surface much later as an opaque "never created
+            // at startup" error from a command nobody would think to suspect.
+            create_overlay_window(&handle).map_err(std::io::Error::other)?;
+            // Not fatal for aim: the host role isn't reachable on Windows yet (`applyPlatformLimits`
+            // in `main.ts`), so refusing to boot the whole app over a window nothing can use yet
+            // would be a worse failure than logging it.
+            if let Err(why) = create_aim_window(&handle) {
+                log::error!("failed to pre-create the aim window at startup: {why}");
             }
             Ok(())
         })

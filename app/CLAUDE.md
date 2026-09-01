@@ -144,10 +144,10 @@ five lines and it is why the failure was invisible.
 
 The 31 Aug lock-up was three real defects (above), all fixed, all re-verified on real hardware —
 and the machine still froze the same way on the first live retest. The actual cause was
-underneath all of them and every earlier fix attempt in this file (the cursor-visibility one is
-still correct and stays; DirectComposition/RDP-compositing and explicit `run_on_main_thread`
-dispatch were both **wrong guesses**, tried and disproven in that order — leaving them out here
-on purpose so the trail doesn't mislead the next person):
+underneath all of them and every earlier fix attempt: DirectComposition/RDP-compositing flags
+and explicit `run_on_main_thread` dispatch were both tried as fixes **for the hang** and both
+disproven for that purpose (kept in this history on purpose, so the next person doesn't retry
+them for *this* bug — DirectComposition came back for a different, real bug below).
 
 **Building a *second* `WebviewWindow` from inside a `#[tauri::command]` that was itself invoked
 over the real frontend IPC path hangs outright on this machine, permanently, with zero log
@@ -159,14 +159,63 @@ confirmed with a real rebuild-and-click cycle: transparency, every other window-
 a separate `data_directory`, `additional_browser_args`, explicit main-thread dispatch. What
 mattered was only ever *creating a new webview at all from a live command* — calling the exact
 same builder code from a background thread that bypasses IPC entirely works fine, every time,
-in under 200ms.
+in under 200ms. **Why this happens is still not understood** — only isolated by elimination.
+Treat "never call `.build()` from a live command" as the rule, not a specific flag or version.
 
-**The fix is to never do that.** `create_overlay_window` builds the overlay once, hidden, from
-`.setup()` — before the app is handling any IPC — and `open_overlay` now only repositions, arms
-and shows the window that already exists; `close_overlay` hides rather than destroys it, so nothing
-ever needs a second `.build()` for the rest of the app's life. Both directions of the cycle
-(open → close → open again) are verified. If this trips again, the fix is the same shape: stop
-building it from a command, not another flag or dependency version.
+**The fix:** `create_overlay_window` and `create_aim_window` build both picker/overlay windows
+once, hidden, from `.setup()` — before the app is handling any IPC — and `open_overlay`/`open_aim`
+now only reposition, arm and show the window that already exists; `close_overlay`/`close_aim`
+hide rather than destroy, so nothing ever needs a second `.build()` for the rest of the app's
+life. `open_aim` used to bake its per-call params (display origin, guest aspect ratio) into the
+window's URL, which needed a fresh window every time — that state now travels as an `aim-params`
+event to `aim.ts` instead. Both directions of the open→close→open cycle are verified for both
+windows. Overlay pre-creation failure is fatal at startup (`.setup()` returns `Err`, Tauri shows
+its own error dialog) since every role depends on it; aim pre-creation failure is only logged,
+since the host role isn't reachable on Windows yet.
+
+**Two independent fresh-context reviews of this fix (1 Sep 2026) converged on the same two gaps,
+both now closed:** `open_aim` had the identical bug shape (destroy-and-rebuild on every call,
+worse than the original), masked only by a frontend UI toggle (`applyPlatformLimits` disables
+the host role on Windows) rather than closed structurally — fixed as above. The host/pointer
+path (`startHosting`/`openHostOverlay` in `main.ts`) never got the try/catch fix that the guest
+path (`startViewing`) did for the exact "Defect 3" this file already documents — fixed, same
+shape, both roles now guard against `open_overlay` rejecting. Both reviews also independently
+recommended **against** a native C# rewrite for Windows: the failure looks like a WebView2
+controller-creation issue, not a Tauri-specific one (so C# using WebView2 would carry the same
+risk), and a separate implementation would break this project's one-`app/`-two-platforms rule —
+see the "Decisions already made" section at the top of the root `CLAUDE.md`.
+
+**Still open, not yet independently confirmed:**
+- No recovery path if the hidden overlay's or aim's WebView2 process dies while hidden — nothing
+  detects it, `get_webview_window` still returns `Some`, `open_overlay`/`open_aim` would report
+  success while showing nothing. Not hit yet; not guarded against.
+- `open_overlay`'s explicit `run_on_main_thread` dispatch is no longer justified by anything that
+  actually hung (`.build()` doesn't happen there anymore) and is kept only as defense-in-depth
+  against the bug generalizing to simpler window methods under some untested condition. Worth a
+  deliberate "does it work without it" test on real hardware before trusting either way.
+- The cursor-invisible-over-RDP fix below is untested by a human looking at the screen.
+
+### Cursor invisible over RDP even though click-through works — untested fix, 1 Sep 2026
+
+The click-through self-test passes and `GetCursorInfo` (a Windows-only `cursor_visible` command
+added for this) reports the cursor as showing, but testing this machine over the same RDP session
+used throughout this debugging, the person watching still couldn't see it. `GetCursorInfo` cannot
+see this — it queries this machine's own OS state, not what RDP's virtual display driver actually
+transmits. `transparent(true)` presents through DirectComposition on Windows, a known source of
+RDP cursor-transmission problems independent of anything the app does wrong. `create_overlay_window`
+now forces software compositing (`--disable-gpu-compositing --disable-direct-composition` via
+`additional_browser_args`, with its own `data_directory` since WebView2 locks browser args to the
+environment created for a profile folder). **Not yet confirmed against real eyes on the screen** —
+this is the next thing to verify, not something to trust because it compiled and didn't hang.
+
+### The app didn't exit when the control window closed — fixed 1 Sep 2026
+
+Direct consequence of the fix above: keeping the overlay (and now aim) window alive, hidden, for
+the app's whole life means Tauri's default "exit once every window is closed" never fires on its
+own, because a hidden window still counts as open. `.on_window_event` now calls `app_handle.exit(0)`
+explicitly when the `main` window gets a `CloseRequested` event. Verified locally by posting a
+real `WM_CLOSE` to the main window's HWND and confirming the process — and its WebView2 child
+processes — fully exit, not just force-killed.
 
 ### Local toolchain — installed on this Windows box, 1 Sep 2026
 
