@@ -131,24 +131,53 @@ five lines and it is why the failure was invisible.
 ### Do these before anything else
 
 1. **Verify the fix on macOS too.** `open_overlay` is shared and the reordering is unrun there.
-   Regression to check: overlay still appears, still passes clicks.
-2. ~~Confirm the ex-style readback compiles on Windows.~~ **Done, 1 Sep 2026.** CI is green
-   with it (`gh run list`), and see point 3 — it now has real-hardware confirmation too, not
-   just a compile.
-3. ~~Test click-through in a bounded way.~~ **Done, 1 Sep 2026, on a real Windows machine.** The
-   "Test click-through" button on the guest display picker (`app/src/main.ts`) arms the overlay
-   against no room and force-closes it on a 10s JS timer, so a failure costs ten seconds instead
-   of Task Manager. Result: **click-through works** — the desktop underneath correctly took
-   clicks. It surfaced a different bug instead: the system cursor was invisible the whole time
-   the overlay was up. Root cause: `overlay.html` set `cursor: none` on the click-through window;
-   WebView2 appears to decide the visible cursor icon for a screen point independently of the
-   `WS_EX_TRANSPARENT` click routing, so that rule blanked the cursor even though clicks were
-   going through correctly. Removed — see the comment left in `overlay.html`. **Not yet re-run
-   against real hardware** to confirm the cursor now stays visible; do that before trusting it.
+   Regression to check: overlay still appears, still passes clicks. Still open.
+2. ~~Confirm the ex-style readback compiles on Windows.~~ **Done, 1 Sep 2026.**
+3. ~~Test click-through in a bounded way.~~ **Done, 1 Sep 2026, on a real Windows machine.**
+   Click-through itself was never actually broken — see the real bug below.
 4. ~~There are still no logs, anywhere.~~ **Done, 1 Sep 2026.** `tauri-plugin-log` writes to
-   stdout in dev and a file everywhere else; `open_overlay`/`arm_click_through`/`close_overlay`
-   are instrumented. A `diagnostics` command bundles build info with the log tail, wired to a
-   "Copy diagnostics" button in the footer.
+   stdout in dev and a file everywhere else; the overlay path is instrumented. A `diagnostics`
+   command bundles build info with the log tail, wired to a "Copy diagnostics" button in the
+   footer.
+
+### The real bug, found and fixed 1 Sep 2026 — read this before touching `open_overlay` again
+
+The 31 Aug lock-up was three real defects (above), all fixed, all re-verified on real hardware —
+and the machine still froze the same way on the first live retest. The actual cause was
+underneath all of them and every earlier fix attempt in this file (the cursor-visibility one is
+still correct and stays; DirectComposition/RDP-compositing and explicit `run_on_main_thread`
+dispatch were both **wrong guesses**, tried and disproven in that order — leaving them out here
+on purpose so the trail doesn't mislead the next person):
+
+**Building a *second* `WebviewWindow` from inside a `#[tauri::command]` that was itself invoked
+over the real frontend IPC path hangs outright on this machine, permanently, with zero log
+output — not even the function's first line.** Reproduced cleanly and repeatedly with a local
+debug build (see "Local toolchain" below) once the actual bug was isolated from a broken test
+harness (`cargo build` loads `devUrl`, not the bundled frontend — running it without `npm run
+dev` also serving `localhost:1420` looks exactly like a hang and is not one). Ruled out, each
+confirmed with a real rebuild-and-click cycle: transparency, every other window-builder option,
+a separate `data_directory`, `additional_browser_args`, explicit main-thread dispatch. What
+mattered was only ever *creating a new webview at all from a live command* — calling the exact
+same builder code from a background thread that bypasses IPC entirely works fine, every time,
+in under 200ms.
+
+**The fix is to never do that.** `create_overlay_window` builds the overlay once, hidden, from
+`.setup()` — before the app is handling any IPC — and `open_overlay` now only repositions, arms
+and shows the window that already exists; `close_overlay` hides rather than destroys it, so nothing
+ever needs a second `.build()` for the rest of the app's life. Both directions of the cycle
+(open → close → open again) are verified. If this trips again, the fix is the same shape: stop
+building it from a command, not another flag or dependency version.
+
+### Local toolchain — installed on this Windows box, 1 Sep 2026
+
+`rustc`/`cargo` (via `rustup`, winget) and MSVC Build Tools (`Microsoft.VisualStudio.2022.BuildTools`
+with the C++ workload, also winget) are now on this machine. Use them — a local
+`cargo build` + run is a ~10s loop; CI is a ~5 minute one. To get a working app locally (not just
+a compile), `npm run dev` (Vite on `localhost:1420`) must be running first, because a debug
+`cargo build` loads `devUrl`, not the bundled `dist/`. Logs land at
+`%LOCALAPPDATA%\com.matewishkey.ghostpointer\logs\ghost-pointer.log` — read that file directly
+rather than only trusting the in-app "Copy diagnostics" button, which needs the UI to be
+responsive to click.
 
 ### Escape hatch, already shipped
 

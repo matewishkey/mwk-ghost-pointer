@@ -249,97 +249,104 @@ fn cursor_visible() -> Option<bool> {
     None
 }
 
-/// Create or reposition the transparent click-through overlay covering one display.
+/// Reposition, re-arm and show the overlay window that `create_overlay_window` already built.
 ///
 /// `x`/`y`/`w`/`h` are that display's rect in the global desktop space, top-left origin,
 /// logical units — i.e. straight out of `displays()`.
 ///
-/// **The window is never visible before it is click-through.** It is built hidden, armed,
-/// checked, and only then shown; if arming fails the window is destroyed rather than left on
-/// screen. That ordering is the whole lesson of the Windows lock-up — the previous version
-/// created the window visible and armed it afterwards, so a failure left a full-screen
-/// click-eating sheet with no way to remove it but Task Manager.
+/// Dispatched explicitly onto the main thread rather than trusted to Tauri's own window-method
+/// marshaling, the same way `displays()` already has to for AppKit — cheap insurance, and a
+/// bounded 5s timeout beats an unbounded wait if the main thread is ever doing something else.
 #[tauri::command]
 fn open_overlay(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-    log::info!("open_overlay: {w}x{h} at ({x},{y})");
-    if let Some(win) = app.get_webview_window("overlay") {
-        log::info!("open_overlay: reusing existing window, repositioning");
-        win.set_position(LogicalPosition::new(x, y)).map_err(e)?;
-        win.set_size(LogicalSize::new(w, h)).map_err(e)?;
-        // Re-armed on every move. Nothing guarantees an ex-style survives a resize, and an
-        // overlay that has quietly stopped being click-through looks identical to one that has
-        // not — until someone tries to click.
-        log::info!("open_overlay: arming");
-        if let Err(why) = arm_click_through(&win) {
-            let _ = win.close();
-            return Err(why);
-        }
-        log::info!("open_overlay: armed, showing");
-        win.show().map_err(e)?;
-        raise_over_everything(&win);
-        log::info!("open_overlay: repositioned and shown");
-        return Ok(());
-    }
-
-    log::info!("open_overlay: no existing window, building one");
-    #[allow(unused_mut)]
-    let mut builder =
-        WebviewWindowBuilder::new(&app, "overlay", WebviewUrl::App("overlay.html".into()))
-            .title("Ghost Pointer overlay")
-            .position(x, y)
-            .inner_size(w, h)
-            .transparent(true)
-            .decorations(false)
-            .shadow(false)
-            .resizable(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .visible_on_all_workspaces(true)
-            .focused(false)
-            .accept_first_mouse(false)
-            // Hidden until proven harmless.
-            .visible(false);
-
-    #[cfg(target_os = "windows")]
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = app.clone();
+    if app
+        .run_on_main_thread(move || {
+            let _ = tx.send(open_overlay_on_main_thread(&handle, x, y, w, h));
+        })
+        .is_err()
     {
-        // `transparent(true)` presents through DirectComposition on Windows, and on a real
-        // machine over Remote Desktop (1 Sep 2026) that hung window creation outright — the log
-        // showed "no existing window, building one" and then nothing, ever, twice, across two
-        // app restarts, with no panic either. Forcing software compositing is the documented
-        // workaround for DirectComposition-under-RDP problems generally; this is the first real
-        // test of whether it is *this* problem. A distinct data directory is required alongside
-        // it: WebView2 locks browser args to the environment created for a profile folder, so
-        // sharing the main window's would silently keep using the GPU path anyway.
-        if let Ok(dir) = app.path().app_local_data_dir() {
-            builder = builder
-                .additional_browser_args(
-                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
-                     --disable-gpu-compositing --disable-direct-composition",
-                )
-                .data_directory(dir.join("overlay-webview"));
-        }
+        return Err("open_overlay: could not dispatch to the main thread".into());
     }
+    rx.recv_timeout(Duration::from_secs(5)).unwrap_or_else(|_| {
+        Err("open_overlay: main thread did not respond within 5s".into())
+    })
+}
 
-    let win = builder.build().map_err(e)?;
-    log::info!("open_overlay: window built, arming");
-
+fn open_overlay_on_main_thread(
+    app: &AppHandle,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+) -> Result<(), String> {
+    log::info!("open_overlay: {w}x{h} at ({x},{y})");
+    // The window always exists by the time any command can run — `create_overlay_window` builds
+    // it, hidden, during `.setup()`. This command only ever repositions, arms and shows it.
+    //
+    // That split exists because building a *second* WebviewWindow from inside a command that was
+    // itself invoked over the real frontend IPC path hung outright on a real Windows machine over
+    // Remote Desktop (1 Sep 2026) — reproduced cleanly, independent of transparency, of every
+    // other window option, and of which explicit-dispatch shape called `.build()`. Every fix
+    // aimed at the overlay's own configuration was chasing the wrong layer; the actual trigger is
+    // creating a *new* webview from a live command handler, at all, in this environment. Since
+    // that trigger is avoidable — nothing requires the window to be built lazily — building it
+    // once at startup, before any IPC has happened, sidesteps the bug entirely rather than
+    // depending on ever fully explaining it.
+    let Some(win) = app.get_webview_window("overlay") else {
+        return Err("open_overlay: the overlay window was never created at startup".into());
+    };
+    win.set_position(LogicalPosition::new(x, y)).map_err(e)?;
+    win.set_size(LogicalSize::new(w, h)).map_err(e)?;
+    // Re-armed on every move. Nothing guarantees an ex-style survives a resize, and an overlay
+    // that has quietly stopped being click-through looks identical to one that has not — until
+    // someone tries to click.
+    log::info!("open_overlay: arming");
     if let Err(why) = arm_click_through(&win) {
-        // Destroy it. A window that cannot pass clicks must not exist, let alone be shown.
-        let _ = win.close();
+        let _ = win.hide();
         return Err(why);
     }
     log::info!("open_overlay: armed, showing");
     win.show().map_err(e)?;
     raise_over_everything(&win);
-    log::info!("open_overlay: created and shown");
+    log::info!("open_overlay: repositioned and shown");
     Ok(())
 }
 
+/// Build the overlay window once, hidden, before the app is doing anything else.
+///
+/// Called only from `.setup()` — see `open_overlay_on_main_thread` for why creating this window
+/// from a live command is the thing to avoid, not creating it at all.
+fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
+    let win = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("overlay.html".into()))
+        .title("Ghost Pointer overlay")
+        .inner_size(1.0, 1.0)
+        .transparent(true)
+        .decorations(false)
+        .shadow(false)
+        .resizable(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible_on_all_workspaces(true)
+        .focused(false)
+        .accept_first_mouse(false)
+        .visible(false)
+        .build()
+        .map_err(e)?;
+    // Armed once up front too, so a `close_overlay` -> `open_overlay` cycle that skips resizing
+    // (same display picked again) does not show an un-armed window even for one frame.
+    arm_click_through(&win)
+}
+
+/// Hide, never destroy — the window is built once at startup (`create_overlay_window`) and
+/// reused for the rest of the app's life, so there is no second `WebviewWindow::build()` left to
+/// hang on.
 #[tauri::command]
 fn close_overlay(app: AppHandle) -> Result<(), String> {
     log::info!("close_overlay");
     if let Some(win) = app.get_webview_window("overlay") {
-        win.close().map_err(e)?;
+        win.hide().map_err(e)?;
     }
     Ok(())
 }
@@ -512,6 +519,15 @@ pub fn run() {
                 })
                 .build(),
         )
+        .setup(|app| {
+            // Built once, here, rather than lazily from `open_overlay` — see that function's
+            // doc comment for why. `.setup()` runs before the app is handling any live IPC,
+            // which is the one difference that mattered.
+            if let Err(why) = create_overlay_window(&app.handle().clone()) {
+                log::error!("failed to pre-create the overlay window at startup: {why}");
+            }
+            Ok(())
+        })
         .manage(Stream::default())
         .invoke_handler(tauri::generate_handler![
             cursor_position,
