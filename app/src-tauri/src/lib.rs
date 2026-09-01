@@ -550,6 +550,18 @@ pub fn run() {
             }
             Ok(())
         })
+        .on_window_event(|window, event| {
+            // The overlay is now kept alive, hidden, for the app's whole life instead of being
+            // destroyed on close_overlay (see create_overlay_window) — which means Tauri's
+            // default "exit once every window is closed" never fires on its own, because the
+            // hidden overlay still counts as an open window. Force it explicitly when the
+            // control window specifically closes, or the process would linger in the background
+            // forever after someone thinks they've quit.
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. })
+            {
+                window.app_handle().exit(0);
+            }
+        })
         .manage(Stream::default())
         .invoke_handler(tauri::generate_handler![
             cursor_position,
