@@ -319,21 +319,43 @@ fn open_overlay_on_main_thread(
 /// Called only from `.setup()` — see `open_overlay_on_main_thread` for why creating this window
 /// from a live command is the thing to avoid, not creating it at all.
 fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
-    let win = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("overlay.html".into()))
-        .title("Ghost Pointer overlay")
-        .inner_size(1.0, 1.0)
-        .transparent(true)
-        .decorations(false)
-        .shadow(false)
-        .resizable(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible_on_all_workspaces(true)
-        .focused(false)
-        .accept_first_mouse(false)
-        .visible(false)
-        .build()
-        .map_err(e)?;
+    #[allow(unused_mut)]
+    let mut builder =
+        WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("overlay.html".into()))
+            .title("Ghost Pointer overlay")
+            .inner_size(1.0, 1.0)
+            .transparent(true)
+            .decorations(false)
+            .shadow(false)
+            .resizable(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .visible_on_all_workspaces(true)
+            .focused(false)
+            .accept_first_mouse(false)
+            .visible(false);
+
+    #[cfg(target_os = "windows")]
+    {
+        // DIAGNOSTIC (1 Sep 2026): the click-through self-test passes and `GetCursorInfo`
+        // reports the cursor as showing, but over the RDP session used to test this machine the
+        // cursor is not actually visible on screen — a state GetCursorInfo cannot see, since it
+        // queries this machine's own OS, not what RDP's virtual display driver transmits.
+        // `transparent(true)` presents through DirectComposition, a known source of RDP cursor-
+        // transmission problems independent of anything the app itself gets right. Forcing
+        // software compositing is the standard workaround; this is the first test of whether it
+        // is *this* problem, now that the hang that made it impossible to test is fixed.
+        if let Ok(dir) = app.path().app_local_data_dir() {
+            builder = builder
+                .additional_browser_args(
+                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+                     --disable-gpu-compositing --disable-direct-composition",
+                )
+                .data_directory(dir.join("overlay-webview"));
+        }
+    }
+
+    let win = builder.build().map_err(e)?;
     // Armed once up front too, so a `close_overlay` -> `open_overlay` cycle that skips resizing
     // (same display picked again) does not show an un-armed window even for one frame.
     arm_click_through(&win)
