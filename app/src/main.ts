@@ -25,6 +25,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const el = {
   role: $("role"), code: $<HTMLInputElement>("code"), gen: $<HTMLButtonElement>("gen"),
   roomStep: $("room-step"), displayStep: $("display-step"), display: $<HTMLSelectElement>("display"),
+  testOverlay: $<HTMLButtonElement>("test-overlay"), testOverlayHint: $("test-overlay-hint"),
   connectStep: $("connect-step"), connect: $<HTMLButtonElement>("connect"),
   dot: $("dot"), statusText: $("status-text"), rtt: $("rtt"),
   aimStep: $("aim-step"), aim: $<HTMLButtonElement>("aim"), aimHint: $("aim-hint"), peerHint: $("peer-hint"),
@@ -234,12 +235,66 @@ async function startViewing(): Promise<void> {
   // misbehaves. See the `hotkey` listener.
   await applyHotkey(el.hotkey.value || DEFAULT_HOTKEY);
   relay.sendGeo({ w: d.w, h: d.h, label: d.label });
-  await invoke("open_overlay", { x: d.x, y: d.y, w: d.w, h: d.h });
-  el.guestLive.hidden = false;
+  try {
+    await invoke("open_overlay", { x: d.x, y: d.y, w: d.w, h: d.h });
+    el.guestLive.hidden = false;
+  } catch (err) {
+    // This is the failure that locked up a real machine on 31 Aug: open_overlay rejected and
+    // nobody heard about it. Say so instead of leaving a silent, possibly-unarmed overlay.
+    setStatus("bad", `Overlay failed to arm: ${err}`);
+  }
 }
 
 const chosenDisplay = (): Display | null =>
   displays.find((d) => d.id === el.display.value) ?? primaryDisplay();
+
+// ---------------------------------------------------------------------------------------------
+// Overlay click-through test
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Arm the overlay with nothing behind it — no room, no relay — and destroy it on a timer.
+ *
+ * This is the bounded test the Windows lock-up on 31 Aug never got: if the overlay is not
+ * actually click-through, the failure costs ten seconds instead of Task Manager, because the
+ * timer that ends it runs in this window's own JS and does not depend on a click reaching
+ * anything. Try clicking your desktop while it counts down.
+ */
+let testOverlayTimer: ReturnType<typeof setTimeout> | null = null;
+
+function endOverlayTest(msg: string): void {
+  if (testOverlayTimer !== null) {
+    clearTimeout(testOverlayTimer);
+    testOverlayTimer = null;
+  }
+  el.testOverlay.disabled = false;
+  el.testOverlay.textContent = "Test click-through";
+  el.testOverlayHint.textContent = msg;
+  void invoke("close_overlay");
+}
+
+el.testOverlay.onclick = async () => {
+  if (connected) {
+    el.testOverlayHint.textContent = "Disconnect first — the overlay is already in use.";
+    return;
+  }
+  const d = chosenDisplay();
+  if (!d) return;
+  el.testOverlay.disabled = true;
+  el.testOverlay.textContent = "Testing…";
+  el.testOverlayHint.textContent =
+    "Try clicking your desktop now. Closes itself in 10s either way.";
+  try {
+    await invoke("open_overlay", { x: d.x, y: d.y, w: d.w, h: d.h });
+    testOverlayTimer = setTimeout(() => {
+      endOverlayTest("Closed automatically. If your desktop took the click, it's click-through.");
+    }, 10_000);
+  } catch (err) {
+    el.testOverlay.disabled = false;
+    el.testOverlay.textContent = "Test click-through";
+    el.testOverlayHint.textContent = `Overlay failed to arm: ${err}`;
+  }
+};
 
 // ---------------------------------------------------------------------------------------------
 // Aim rect
