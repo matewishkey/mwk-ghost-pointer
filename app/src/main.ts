@@ -270,6 +270,21 @@ const chosenDisplay = (): Display | null =>
 let testOverlayTimer: ReturnType<typeof setTimeout> | null = null;
 let testOverlayPoll: ReturnType<typeof setInterval> | null = null;
 
+/**
+ * A Tauri command that panics drops its response without sending one, so `invoke` just never
+ * resolves — the frontend has no way to tell "still working" from "silently died" apart. Race it
+ * against a clock instead of trusting it to always answer.
+ */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} did not respond within ${ms}ms`)), ms);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (err) => { clearTimeout(t); reject(err as Error); },
+    );
+  });
+}
+
 function endOverlayTest(msg: string): void {
   if (testOverlayTimer !== null) {
     clearTimeout(testOverlayTimer);
@@ -296,7 +311,11 @@ el.testOverlay.onclick = async () => {
   el.testOverlay.textContent = "Testing…";
   el.testOverlayHint.textContent = "Arming…";
   try {
-    await invoke("open_overlay", { x: d.x, y: d.y, w: d.w, h: d.h });
+    await withTimeout(
+      invoke("open_overlay", { x: d.x, y: d.y, w: d.w, h: d.h }),
+      5000,
+      "open_overlay",
+    );
   } catch (err) {
     el.testOverlay.disabled = false;
     el.testOverlay.textContent = "Test click-through";

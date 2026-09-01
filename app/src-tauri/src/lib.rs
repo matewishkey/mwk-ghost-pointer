@@ -263,21 +263,25 @@ fn cursor_visible() -> Option<bool> {
 fn open_overlay(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     log::info!("open_overlay: {w}x{h} at ({x},{y})");
     if let Some(win) = app.get_webview_window("overlay") {
+        log::info!("open_overlay: reusing existing window, repositioning");
         win.set_position(LogicalPosition::new(x, y)).map_err(e)?;
         win.set_size(LogicalSize::new(w, h)).map_err(e)?;
         // Re-armed on every move. Nothing guarantees an ex-style survives a resize, and an
         // overlay that has quietly stopped being click-through looks identical to one that has
         // not — until someone tries to click.
+        log::info!("open_overlay: arming");
         if let Err(why) = arm_click_through(&win) {
             let _ = win.close();
             return Err(why);
         }
+        log::info!("open_overlay: armed, showing");
         win.show().map_err(e)?;
         raise_over_everything(&win);
         log::info!("open_overlay: repositioned and shown");
         return Ok(());
     }
 
+    log::info!("open_overlay: no existing window, building one");
     let win = WebviewWindowBuilder::new(&app, "overlay", WebviewUrl::App("overlay.html".into()))
         .title("Ghost Pointer overlay")
         .position(x, y)
@@ -295,12 +299,14 @@ fn open_overlay(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), St
         .visible(false)
         .build()
         .map_err(e)?;
+    log::info!("open_overlay: window built, arming");
 
     if let Err(why) = arm_click_through(&win) {
         // Destroy it. A window that cannot pass clicks must not exist, let alone be shown.
         let _ = win.close();
         return Err(why);
     }
+    log::info!("open_overlay: armed, showing");
     win.show().map_err(e)?;
     raise_over_everything(&win);
     log::info!("open_overlay: created and shown");
@@ -453,6 +459,15 @@ fn e<E: std::fmt::Display>(err: E) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // A command that panics drops its response channel without sending anything, so the
+    // frontend's `invoke` just hangs forever instead of rejecting — and `main.rs` sets
+    // `windows_subsystem = "windows"` in release, which means there is no console for the
+    // default panic message to land on either. Route it to the same log a normal error would
+    // use, so "it got stuck" leaves a stack trace instead of nothing.
+    std::panic::set_hook(Box::new(|info| {
+        log::error!("panic: {info}");
+    }));
+
     tauri::Builder::default()
         .plugin(
             // There were no logs anywhere for the 31 Aug lock-up, which is why it produced no
