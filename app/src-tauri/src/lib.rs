@@ -208,6 +208,47 @@ fn arm_click_through(win: &WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
+/// Ask the OS whether the system cursor is currently showing — objective, not "look at your
+/// screen and tell me". `None` off Windows, where nothing has ever shown this failure mode.
+///
+/// Exists because click-through and cursor visibility turned out to be two different claims,
+/// same as the ex-style readback above: a real Windows machine (1 Sep 2026) passed clicks
+/// through to the desktop correctly while `GetCursorInfo` would have shown the cursor hidden the
+/// whole time — `overlay.html`'s `cursor: none` was the cause, since fixed, but this is what
+/// would have caught it without eyes on the screen, and what proves the fix instead of assuming
+/// it.
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn cursor_visible() -> Option<bool> {
+    #[repr(C)]
+    struct CursorInfo {
+        cb_size: u32,
+        flags: u32,
+        h_cursor: isize,
+        pt_x: i32,
+        pt_y: i32,
+    }
+    extern "system" {
+        fn GetCursorInfo(info: *mut CursorInfo) -> i32;
+    }
+    const CURSOR_SHOWING: u32 = 0x0000_0001;
+
+    let mut info = CursorInfo { cb_size: std::mem::size_of::<CursorInfo>() as u32, flags: 0, h_cursor: 0, pt_x: 0, pt_y: 0 };
+    if unsafe { GetCursorInfo(&mut info) } == 0 {
+        log::warn!("cursor_visible: GetCursorInfo failed");
+        return None;
+    }
+    let showing = info.flags & CURSOR_SHOWING != 0;
+    log::info!("cursor_visible: {showing} (flags=0x{:X}, hCursor=0x{:X})", info.flags, info.h_cursor);
+    Some(showing)
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn cursor_visible() -> Option<bool> {
+    None
+}
+
 /// Create or reposition the transparent click-through overlay covering one display.
 ///
 /// `x`/`y`/`w`/`h` are that display's rect in the global desktop space, top-left origin,
@@ -453,6 +494,7 @@ pub fn run() {
             pulse,
             set_hotkey,
             diagnostics,
+            cursor_visible,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

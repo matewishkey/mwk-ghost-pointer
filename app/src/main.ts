@@ -260,13 +260,24 @@ const chosenDisplay = (): Display | null =>
  * actually click-through, the failure costs ten seconds instead of Task Manager, because the
  * timer that ends it runs in this window's own JS and does not depend on a click reaching
  * anything. Try clicking your desktop while it counts down.
+ *
+ * Click-through and cursor visibility turned out to be two different claims — a real Windows
+ * machine passed clicks through while the system cursor stayed invisible the whole time, see
+ * `overlay.html`. So this also polls `cursor_visible` (Windows only; `null` elsewhere) once a
+ * second, which is what would have caught that without anyone having to notice it by eye, and
+ * every reading lands in the Rust log too via `Copy diagnostics`.
  */
 let testOverlayTimer: ReturnType<typeof setTimeout> | null = null;
+let testOverlayPoll: ReturnType<typeof setInterval> | null = null;
 
 function endOverlayTest(msg: string): void {
   if (testOverlayTimer !== null) {
     clearTimeout(testOverlayTimer);
     testOverlayTimer = null;
+  }
+  if (testOverlayPoll !== null) {
+    clearInterval(testOverlayPoll);
+    testOverlayPoll = null;
   }
   el.testOverlay.disabled = false;
   el.testOverlay.textContent = "Test click-through";
@@ -283,18 +294,35 @@ el.testOverlay.onclick = async () => {
   if (!d) return;
   el.testOverlay.disabled = true;
   el.testOverlay.textContent = "Testing…";
-  el.testOverlayHint.textContent =
-    "Try clicking your desktop now. Closes itself in 10s either way.";
+  el.testOverlayHint.textContent = "Arming…";
   try {
     await invoke("open_overlay", { x: d.x, y: d.y, w: d.w, h: d.h });
-    testOverlayTimer = setTimeout(() => {
-      endOverlayTest("Closed automatically. If your desktop took the click, it's click-through.");
-    }, 10_000);
   } catch (err) {
     el.testOverlay.disabled = false;
     el.testOverlay.textContent = "Test click-through";
     el.testOverlayHint.textContent = `Overlay failed to arm: ${err}`;
+    return;
   }
+
+  let sawHidden = false;
+  let secondsLeft = 10;
+  const tick = async () => {
+    const showing = await invoke<boolean | null>("cursor_visible").catch(() => null);
+    if (showing === false) sawHidden = true;
+    const cursorNote = showing === null ? "" : ` Cursor: ${showing ? "visible" : "HIDDEN"}.`;
+    el.testOverlayHint.textContent =
+      `Try clicking your desktop now.${cursorNote} Closes in ${secondsLeft}s.`;
+    secondsLeft--;
+  };
+  void tick();
+  testOverlayPoll = setInterval(tick, 1000);
+  testOverlayTimer = setTimeout(() => {
+    endOverlayTest(
+      sawHidden
+        ? "Closed automatically. The cursor went invisible during the test — see Copy diagnostics."
+        : "Closed automatically. Cursor stayed visible. If your desktop took the click, it's fully click-through.",
+    );
+  }, 10_000);
 };
 
 // ---------------------------------------------------------------------------------------------
