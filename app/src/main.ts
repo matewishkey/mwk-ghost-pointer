@@ -31,6 +31,7 @@ const el = {
   aimStep: $("aim-step"), aim: $<HTMLButtonElement>("aim"), aimHint: $("aim-hint"), peerHint: $("peer-hint"),
   armStep: $("arm-step"), mode: $("mode"), hotkey: $<HTMLInputElement>("hotkey"),
   armed: $("armed"), armedText: $("armed-text"), guestLive: $("guest-live"),
+  diag: $<HTMLButtonElement>("diag"),
 };
 
 const DEFAULT_HOTKEY = "Control+Alt+Shift+G";
@@ -431,6 +432,24 @@ el.connect.onclick = async () => {
   el.connect.textContent = "Disconnect";
   el.connect.classList.add("on");
   relay.connect(code, role!, role === "point" ? "host" : "guest");
+};
+
+/**
+ * Copy build info plus the Rust side's log tail to the clipboard in one click.
+ *
+ * The overlay can fail with nothing visible on screen — see the `open_overlay` catch above — so
+ * this is what turns "it didn't work" into something with a build number and a log attached.
+ */
+el.diag.onclick = async () => {
+  const original = el.diag.textContent;
+  try {
+    const text = await invoke<string>("diagnostics");
+    await navigator.clipboard.writeText(text);
+    el.diag.textContent = "Copied";
+  } catch {
+    el.diag.textContent = "Couldn't copy — try again";
+  }
+  setTimeout(() => { el.diag.textContent = original; }, 2000);
 };
 
 /** Stamp the footer with exactly which build this is — first question of any bug report. */

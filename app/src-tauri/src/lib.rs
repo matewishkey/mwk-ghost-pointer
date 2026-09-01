@@ -197,10 +197,13 @@ fn arm_click_through(win: &WebviewWindow) -> Result<(), String> {
         let layered = style & WS_EX_LAYERED != 0;
         let transparent = style & WS_EX_TRANSPARENT != 0;
         if !(layered && transparent) {
-            return Err(format!(
+            let msg = format!(
                 "overlay would not be click-through (ex-style 0x{style:X}: layered={layered}, transparent={transparent})"
-            ));
+            );
+            log::error!("{msg}");
+            return Err(msg);
         }
+        log::info!("overlay armed click-through (ex-style 0x{style:X})");
     }
     Ok(())
 }
@@ -217,6 +220,7 @@ fn arm_click_through(win: &WebviewWindow) -> Result<(), String> {
 /// click-eating sheet with no way to remove it but Task Manager.
 #[tauri::command]
 fn open_overlay(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    log::info!("open_overlay: {w}x{h} at ({x},{y})");
     if let Some(win) = app.get_webview_window("overlay") {
         win.set_position(LogicalPosition::new(x, y)).map_err(e)?;
         win.set_size(LogicalSize::new(w, h)).map_err(e)?;
@@ -229,6 +233,7 @@ fn open_overlay(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), St
         }
         win.show().map_err(e)?;
         raise_over_everything(&win);
+        log::info!("open_overlay: repositioned and shown");
         return Ok(());
     }
 
@@ -257,11 +262,13 @@ fn open_overlay(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), St
     }
     win.show().map_err(e)?;
     raise_over_everything(&win);
+    log::info!("open_overlay: created and shown");
     Ok(())
 }
 
 #[tauri::command]
 fn close_overlay(app: AppHandle) -> Result<(), String> {
+    log::info!("close_overlay");
     if let Some(win) = app.get_webview_window("overlay") {
         win.close().map_err(e)?;
     }
@@ -361,6 +368,42 @@ fn set_hotkey(app: AppHandle, accelerator: String) -> Result<(), String> {
     gs.register(shortcut).map_err(e)
 }
 
+/// A bug report's first ten minutes, already assembled.
+///
+/// The overlay is the one thing in this app that can fail invisibly — see `arm_click_through` —
+/// which is exactly what happened on 31 Aug with nothing to show for it afterwards. This turns
+/// "it didn't work" into a build number plus a log tail, copyable in one click.
+#[tauri::command]
+fn diagnostics(app: AppHandle) -> String {
+    let info = build_info();
+    let field = |k: &str| info[k].as_str().unwrap_or("?").to_string();
+
+    let log_tail = app
+        .path()
+        .app_log_dir()
+        .ok()
+        .and_then(|dir| std::fs::read_dir(dir).ok())
+        .and_then(|entries| {
+            // Only one thing writes to this directory, so the most recently modified file in it
+            // is the current log — no need to guess the plugin's exact naming scheme.
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_file())
+                .max_by_key(|e| e.metadata().ok().and_then(|m| m.modified().ok()))
+        })
+        .and_then(|entry| std::fs::read_to_string(entry.path()).ok())
+        .map(|s| {
+            let lines: Vec<&str> = s.lines().collect();
+            lines[lines.len().saturating_sub(200)..].join("\n")
+        })
+        .unwrap_or_else(|| "(no log file found)".to_string());
+
+    format!(
+        "Ghost Pointer v{} · {} · built {} · {}\n\n--- log tail ---\n{}",
+        field("version"), field("commit"), field("built"), field("os"), log_tail
+    )
+}
+
 fn e<E: std::fmt::Display>(err: E) -> String {
     err.to_string()
 }
@@ -370,6 +413,17 @@ fn e<E: std::fmt::Display>(err: E) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(
+            // There were no logs anywhere for the 31 Aug lock-up, which is why it produced no
+            // evidence. Stdout for a dev run, a file for everyone else's bug report.
+            tauri_plugin_log::Builder::new()
+                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
+                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                    file_name: Some("ghost-pointer".into()),
+                }))
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -398,6 +452,7 @@ pub fn run() {
             draw,
             pulse,
             set_hotkey,
+            diagnostics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
