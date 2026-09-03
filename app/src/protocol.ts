@@ -103,18 +103,35 @@ type Handlers = {
   onClear?: (m: ClearMsg) => void;
   onRtt?: (ms: number) => void;
   onClose?: (why: string) => void;
+  /** A drop we intend to recover from. `wait` is how long until the next attempt, in ms. */
+  onRetrying?: (attempt: number, wait: number) => void;
 };
 
+/** Backoff between reconnect attempts, in ms. The last value repeats for as long as it takes. */
+const RETRY_MS = [400, 1000, 2000, 4000, 8000];
+/** How long a connection has to hold before it counts as good and the backoff resets. */
+const STABLE_MS = 5000;
+
 /**
- * One room, one socket.
+ * One room, one socket — and it reconnects.
  *
- * Deliberately dumb: it does not reconnect, it does not queue, it does not retry. Reconnect
- * handling is explicitly out of scope for the first build — if the socket drops, the UI says so
- * and you press connect again.
+ * It used to be deliberately dumb: no retry, no queue, "if the socket drops the UI says so and
+ * you press connect again". That held right up until a real call, where a single blip did not
+ * read as a blip — it read as the app breaking, mid-conversation, with a client watching. On a
+ * guest's machine the control window is behind their browser, so nobody sees the status line
+ * that explains it either.
+ *
+ * It still does not queue or replay: pointer samples are worthless a second later. It reopens
+ * the room and lets the normal join path put everything back.
  */
 export class Relay {
   private ws: WebSocket | null = null;
   private pingTimer: number | null = null;
+  /** What we are trying to stay joined to. `null` means the user asked to disconnect. */
+  private want: { code: string; role: Role; name: string } | null = null;
+  private retryTimer: number | null = null;
+  private stableTimer: number | null = null;
+  private attempt = 0;
   private peers = new Map<string, Peer>();
   /** Last sample actually put on the wire — used to skip frames that would say nothing new. */
   private lastSent = { x: -1, y: -1, a: -1 };
@@ -127,18 +144,38 @@ export class Relay {
 
   connect(code: string, role: Role, name: string): void {
     this.close();
+    this.want = { code, role, name };
+    this.attempt = 0;
+    this.open();
+  }
+
+  private open(): void {
+    if (!this.want) return;
+    const { code, role, name } = this.want;
     const url = `${RELAY}/r/${code}?role=${role}&name=${encodeURIComponent(name)}&hint=oc`;
     const ws = new WebSocket(url);
     this.ws = ws;
 
     ws.onmessage = (ev) => this.handle(JSON.parse(ev.data));
-    ws.onerror = () => this.h.onClose?.("connection failed");
+    // No onClose here: a failed socket always fires onclose too, and reporting both told the
+    // user the connection died twice.
+    ws.onerror = () => {};
     ws.onclose = (ev) => {
+      this.clearStable();
       this.stopPinging();
+      this.peers.clear();
+      this.lastSent = { x: -1, y: -1, a: -1 };
       // 1000 is our own close(); anything else the user did not ask for.
       this.h.onClose?.(ev.code === 1000 ? "disconnected" : `dropped (${ev.code})`);
+      if (this.want) this.scheduleRetry();
     };
-    ws.onopen = () => this.startPinging();
+    ws.onopen = () => {
+      // Backoff resets only once a connection has *held* for a while, not the instant it opens.
+      // A socket the relay accepts and drops again immediately would otherwise reset the counter
+      // every time and hammer it at the shortest interval forever.
+      this.stableTimer = window.setTimeout(() => { this.attempt = 0; }, STABLE_MS);
+      this.startPinging();
+    };
   }
 
   private handle(m: any): void {
@@ -237,6 +274,22 @@ export class Relay {
     if (this.connected) this.ws!.send(JSON.stringify({ k: "geo", g }));
   }
 
+  private clearStable(): void {
+    if (this.stableTimer !== null) window.clearTimeout(this.stableTimer);
+    this.stableTimer = null;
+  }
+
+  private scheduleRetry(): void {
+    if (this.retryTimer !== null) return;
+    const wait = RETRY_MS[Math.min(this.attempt, RETRY_MS.length - 1)];
+    this.attempt += 1;
+    this.h.onRetrying?.(this.attempt, wait);
+    this.retryTimer = window.setTimeout(() => {
+      this.retryTimer = null;
+      this.open();
+    }, wait);
+  }
+
   private startPinging(): void {
     const ping = () => {
       if (this.connected) this.ws!.send(JSON.stringify({ k: "ping", t: Date.now() }));
@@ -251,6 +304,13 @@ export class Relay {
   }
 
   close(): void {
+    // Clearing `want` first is what makes this a disconnect rather than a blip: the onclose
+    // handler checks it, so nothing reconnects behind the user's back.
+    this.want = null;
+    if (this.retryTimer !== null) window.clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.clearStable();
+    this.attempt = 0;
     this.stopPinging();
     this.peers.clear();
     this.lastSent = { x: -1, y: -1, a: -1 };

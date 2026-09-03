@@ -1,6 +1,6 @@
 [package]
 name = "ghost-pointer"
-version = "0.3.0"
+version = "0.4.0"
 description = "Point at things on someone else's screen"
 authors = ["mergodon"]
 edition = "2021"

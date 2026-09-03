@@ -33,6 +33,7 @@ const el = {
   armStep: $("arm-step"), mode: $("mode"), hotkey: $<HTMLInputElement>("hotkey"),
   pulseKey: $<HTMLInputElement>("pulse-key"),
   armed: $("armed"), armedText: $("armed-text"), guestLive: $("guest-live"),
+  guestEscape: $("guest-escape"),
   textStep: $("text-step"), composer: $<HTMLTextAreaElement>("composer"), keep: $("keep"),
   textCount: $("text-count"), sendText: $<HTMLButtonElement>("send-text"),
   clearMarks: $<HTMLButtonElement>("clear-marks"), textHint: $("text-hint"),
@@ -50,6 +51,16 @@ const DEFAULT_PULSE_KEY = "Alt+Shift+B";
  * and only when it is still the old default: a key someone actually chose is left alone.
  */
 const LEGACY_HOTKEY = "Control+Alt+Shift+G";
+/**
+ * The guest's escape hatch. Deliberately awkward, and deliberately NOT the host's arm key.
+ *
+ * The guest registers a global shortcut whose only job is to tear down a misbehaving overlay —
+ * it disconnects them. That must never be a chord someone can hit while working. `Alt+Shift+A`
+ * became the arm key on 3 Sep and was handed to the guest as well, which meant two modifiers and
+ * a letter would silently kill a guest's session mid-call. Roles have different needs here: the
+ * host wants ergonomic, the guest wants unhittable.
+ */
+const GUEST_ESCAPE_HOTKEY = "Control+Alt+Shift+G";
 const store = {
   get: (k: string, fallback = "") => localStorage.getItem(`gp.${k}`) ?? fallback,
   set: (k: string, v: string) => localStorage.setItem(`gp.${k}`, v),
@@ -93,15 +104,50 @@ const primaryDisplay = (): Display | null =>
 // Relay
 // ---------------------------------------------------------------------------------------------
 
+/** Pointer samples received since the last heartbeat, and the last RTT the relay reported. */
+let rxSinceBeat = 0;
+let lastRtt = -1;
+let beatTimer: number | null = null;
+
+/**
+ * A line in the log every 5 seconds while connected.
+ *
+ * Two jobs. It records what the session actually did — message rate and latency — so a report of
+ * "it was laggy" has numbers behind it instead of a memory. And because this is a `setInterval`
+ * in the control window, **the spacing of the lines is itself the measurement**: macOS throttles
+ * timers in a webview whose window is occluded, so if the guest buries this window behind their
+ * browser and the beats stretch to 10 or 30 seconds, that is the lag, caught in the act.
+ */
+function startHeartbeat(): void {
+  stopHeartbeat();
+  beatTimer = window.setInterval(() => {
+    logLine(`beat: rx=${rxSinceBeat} in ~5s, rtt=${lastRtt}ms, armed=${armed}, role=${role}`);
+    rxSinceBeat = 0;
+  }, 5000);
+}
+
+function stopHeartbeat(): void {
+  if (beatTimer !== null) window.clearInterval(beatTimer);
+  beatTimer = null;
+}
+
+/** Write to the app log. The socket lives here, so its lifecycle has to be recorded here. */
+function logLine(msg: string, level: "info" | "warn" | "error" = "info"): void {
+  void invoke("log_line", { level, msg });
+}
+
 const relay = new Relay({
   onOpen: (_you, peers) => {
     connected = true;
+    logLine(`connected as ${role}, ${peers.length} peer(s) already in the room`);
+    startHeartbeat();
     setStatus("on", role === "point" ? "Connected — waiting for them" : "Connected");
     onPeers(peers);
     void (role === "point" ? startHosting() : startViewing());
   },
   onPeers,
   onPointer: (m) => {
+    rxSinceBeat++;
     if (role === "view") void invoke("draw", { payload: { x: m.x, y: m.y, a: m.a } });
   },
   onClick: (m) => {
@@ -120,11 +166,20 @@ const relay = new Relay({
     // The inbox deliberately survives a clear. Clearing is about taking marks off their screen,
     // not about revoking a command they were part-way through pasting.
   },
-  onRtt: (ms) => { el.rtt.textContent = `${ms} ms`; },
+  onRtt: (ms) => { lastRtt = ms; el.rtt.textContent = `${ms} ms`; },
   onClose: (why) => {
+    logLine(`socket closed: ${why}`, why === "disconnected" ? "info" : "warn");
     connected = false;
     setStatus(why === "disconnected" ? "" : "bad", why[0].toUpperCase() + why.slice(1));
     void teardown();
+  },
+  onRetrying: (attempt, wait) => {
+    logLine(`reconnecting, attempt ${attempt}, in ${wait}ms`, "warn");
+    setStatus("bad", `Connection dropped — reconnecting (${attempt})…`);
+    // The Connect button still says Disconnect while retrying, because pressing it is how you
+    // stop the retries. Saying "Connect" would suggest nothing is happening.
+    el.connect.textContent = "Stop trying";
+    el.connect.classList.add("on");
   },
 });
 
@@ -249,6 +304,7 @@ void listen("hotkey", () => {
     // an opaque one that eats every click, and at that point the mouse cannot reach the app to
     // fix it. A global hotkey still gets through, so there is always a way out without a
     // force-quit. Cheap insurance; keep it even once the overlay is well proven.
+    logLine("guest pressed the escape hotkey — closing the overlay and disconnecting", "warn");
     relay.close();
     void teardown();
     setStatus("", "Overlay closed with the hotkey");
@@ -270,8 +326,9 @@ async function startViewing(): Promise<void> {
   const d = chosenDisplay();
   if (!d) return;
   // Registered for the guest too — not to arm anything, but as the way out if the overlay
-  // misbehaves. See the `hotkey` listener.
-  await applyHotkey(el.hotkey.value || DEFAULT_HOTKEY);
+  // misbehaves. Its own chord, never the host's arm key. See the `hotkey` listener.
+  await applyHotkey(GUEST_ESCAPE_HOTKEY, null);
+  el.guestEscape.textContent = GUEST_ESCAPE_HOTKEY;
   relay.sendGeo({ w: d.w, h: d.h, label: d.label });
   try {
     await invoke("open_overlay", { x: d.x, y: d.y, w: d.w, h: d.h });
@@ -560,6 +617,9 @@ async function teardown(): Promise<void> {
   // suppresses onClose on purpose, and a latency reading left over from a dead socket reads
   // as if the connection were still up.
   el.rtt.textContent = "";
+  stopHeartbeat();
+  rxSinceBeat = 0;
+  lastRtt = -1;
   // A draft belongs to the connection it was being typed into. Keeping it across a reconnect
   // would leave a mark id the other side has never heard of.
   draftId = null;
@@ -571,13 +631,16 @@ async function teardown(): Promise<void> {
   el.connect.classList.remove("on");
 }
 
-async function applyHotkey(accel: string, pulseAccel?: string): Promise<void> {
-  const pulse = pulseAccel ?? el.pulseKey.value.trim() ?? DEFAULT_PULSE_KEY;
+async function applyHotkey(accel: string, pulseAccel?: string | null): Promise<void> {
+  // `null` is the guest: one key, no pulse. `undefined` means "whatever is in the field".
+  const pulse = pulseAccel === null ? null : (pulseAccel || el.pulseKey.value.trim() || DEFAULT_PULSE_KEY);
   try {
     await invoke("set_hotkeys", { arm: accel, pulse });
     el.hotkey.setCustomValidity("");
-    store.set("hotkey", accel);
-    store.set("pulseKey", pulse);
+    if (pulse !== null) {
+      store.set("hotkey", accel);
+      store.set("pulseKey", pulse);
+    }
   } catch (err) {
     // A shortcut the OS will not give us is worth saying out loud — silently not arming is the
     // kind of bug that gets blamed on the network. Both keys go down together, so this covers

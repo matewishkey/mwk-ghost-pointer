@@ -61,6 +61,7 @@ listen<{ x: number; y: number; b: number }>("pulse", (ev) => {
   });
   // A stuck sender must not be able to grow this without bound.
   if (pulses.length > 40) pulses.splice(0, pulses.length - 40);
+  wake();
 });
 
 /** Expanding ring where a click landed. Left is one ring, right is two — they have to be
@@ -121,9 +122,10 @@ listen<{ m: string; x: number; y: number; s: string; end: number; keep: number }
     t: performance.now(),
   });
   if (marks.size > 40) marks.delete(marks.keys().next().value!);
+  wake();
 });
 
-listen("clear-marks", () => marks.clear());
+listen("clear-marks", () => { marks.clear(); wake(); });
 
 /**
  * A text mark: mono text in a rounded card, red rule down the left edge.
@@ -185,9 +187,31 @@ listen<{ x: number; y: number; a: number }>("ghost", (ev) => {
   visible = a === 1;
   // A ghost that reappears somewhere else should not smear across the screen to get there.
   if (!render || (!visible && alpha === 0)) render = { ...target };
+  wake();
 });
 
 let prev = performance.now();
+/**
+ * Whether the render loop is scheduled.
+ *
+ * The loop used to run forever: a full-screen `clearRect` at 60 Hz for the entire length of a
+ * call, on the *guest's* machine, whether or not anything was on screen. This file's own opening
+ * comment says the whole pitch is that it costs them nothing — an idle repaint loop is the exact
+ * opposite. Now it sleeps when there is nothing to draw and every event wakes it.
+ */
+let looping = false;
+
+/** True when a frame would put nothing on the canvas. */
+function idle(): boolean {
+  return alpha === 0 && !trail.length && !pulses.length && !marks.size;
+}
+
+function wake(): void {
+  if (looping) return;
+  looping = true;
+  prev = performance.now();
+  requestAnimationFrame(frame);
+}
 
 function frame(now: number): void {
   const dt = Math.min(now - prev, 100); // a backgrounded tab can hand us a huge dt
@@ -261,6 +285,10 @@ function frame(now: number): void {
     ctx.fill();
   }
 
+  // Stop only after a frame that cleared the canvas, so nothing is left painted on their screen.
+  if (idle()) {
+    looping = false;
+    return;
+  }
   requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);

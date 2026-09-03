@@ -526,28 +526,47 @@ static KEYS: Mutex<Option<(Shortcut, Shortcut)>> = Mutex::new(None);
 /// clean way to drop a previous binding, and doing that per-key would tear the other one down
 /// as a side effect.
 #[tauri::command]
-fn set_hotkeys(app: AppHandle, arm: String, pulse: String) -> Result<(), String> {
+fn set_hotkeys(app: AppHandle, arm: String, pulse: Option<String>) -> Result<(), String> {
     let parse = |a: &str| -> Result<Shortcut, String> {
         a.parse()
             .map_err(|_| format!("'{a}' is not a shortcut this platform can register"))
     };
     let arm_key = parse(&arm)?;
-    let pulse_key = parse(&pulse)?;
-    if arm_key == pulse_key {
+    // The guest passes none: it registers one key, and that key is an escape hatch, not a pulse.
+    let pulse_key = pulse.as_deref().map(parse).transpose()?;
+    if pulse_key == Some(arm_key) {
         return Err("Arm and pulse cannot be the same shortcut".into());
     }
 
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
     gs.register(arm_key).map_err(e)?;
-    // Leaving arm registered but pulse not would be a half-armed state nobody can see, so undo
-    // the first registration if the second is refused.
-    if let Err(err) = gs.register(pulse_key) {
-        let _ = gs.unregister_all();
-        return Err(e(err));
+    if let Some(p) = pulse_key {
+        // Leaving arm registered but pulse not would be a half-armed state nobody can see, so
+        // undo the first registration if the second is refused.
+        if let Err(err) = gs.register(p) {
+            let _ = gs.unregister_all();
+            return Err(e(err));
+        }
     }
-    *KEYS.lock().unwrap() = Some((arm_key, pulse_key));
+    *KEYS.lock().unwrap() = pulse_key.map(|p| (arm_key, p));
+    log::info!("hotkeys registered: arm={arm} pulse={pulse:?}");
     Ok(())
+}
+
+/// Let the frontend write to the same log the backend uses.
+///
+/// The socket lives in the control window, so every connect, drop and reconnect happens in
+/// TypeScript — and none of it was reaching the log. A session that lost its connection left
+/// no trace anywhere, which is exactly the hole the 31 Aug lock-up left and that this app has
+/// already paid to close once.
+#[tauri::command]
+fn log_line(level: String, msg: String) {
+    match level.as_str() {
+        "error" => log::error!("ui: {msg}"),
+        "warn" => log::warn!("ui: {msg}"),
+        _ => log::info!("ui: {msg}"),
+    }
 }
 
 /// A bug report's first ten minutes, already assembled.
@@ -681,6 +700,7 @@ pub fn run() {
             text,
             clear_marks,
             set_hotkeys,
+            log_line,
             diagnostics,
             cursor_visible,
         ])
