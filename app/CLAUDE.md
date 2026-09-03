@@ -102,6 +102,34 @@ Settled, and not to be relitigated:
 - **Marks have two modes, both wanted:** persistent and fading. That is a per-mark flag on the
   wire, not a room setting, so switching mid-session leaves existing marks alone.
 
+### Text — app side built 3 Sep 2026, still waiting on the relay
+
+`txt` and `clr` are implemented end to end *inside the app*, to the exact shapes proposed in #6.
+The relay still drops both, so the guest sees nothing across the wire yet; the host's local echo
+is what makes it testable today, the same arrangement click-to-pulse has had since 31 Aug. When
+#6 lands, nothing here should need to change — if it does, #6 changed shape and this is the bug.
+
+Verified, not assumed: 14 assertions on the exact JSON leaving `sendText`/`sendClear`; the
+overlay driven headlessly through `clear-marks` and through retracting an uncommitted draft,
+both ending on a provably empty canvas; the app run from source with the composer on screen.
+
+**Deliberate deviations from the shape settled above — decide before building further:**
+
+- **No text hotkey, and no ghost-freeze anchor.** A mark lands at the last position that was
+  pointed at, remembered across disarm. Cheaper, and it works while disarmed; it is not the
+  "press the text hotkey, ghost freezes" flow that was described.
+- **The composer is inline in the control window, not a non-activating panel.** The panel was
+  always marked unverified through Tauri, and an inline box needed no new window — which, given
+  what creating windows cost on Windows, is worth something on its own. The cost is that the
+  video call behind does lose focus while typing.
+- **Clearing is a button, not right-click.** Right-click already means a distinct pulse and has
+  shipped that way. Both behaviours are written down as settled, which cannot both be true —
+  mate's call, not one to make silently.
+
+`TEXT_MAX` is the app's own 2000-character ceiling, enforced at the composer with a visible
+count and a refusal. It is a placeholder for whatever number the relay picks; #6 asks that
+overflow be visible rather than silently clipped, and this side already behaves that way.
+
 ## Windows — START HERE if you are on the Windows box (1 Sep 2026)
 
 **A Windows build was published on 31 Aug and it locked up a real machine.** Connected as a
