@@ -130,6 +130,38 @@ both ending on a provably empty canvas; the app run from source with the compose
 count and a refusal. It is a placeholder for whatever number the relay picks; #6 asks that
 overflow be visible rather than silently clipped, and this side already behaves that way.
 
+## The 3 Sep client call — what actually broke, and what did not (fixed in v0.4.0)
+
+First real session with a guest. Laggy, dropped, then stopped working, worst while the client was
+clicking around their own screen. Do not re-derive any of this.
+
+- **The guest was registering the host's hotkeys, globally.** `startViewing` passed the arm key
+  straight through, so the guest's machine swallowed `Alt+Shift+A` and `Alt+Shift+B` system-wide —
+  and the guest's handler for the arm key **disconnects them**. Until 3 Sep that chord was
+  `Control+Alt+Shift+G`, awkward on purpose; it became two modifiers and a letter and went to the
+  guest too. One stray keystroke ended a session, silently, mid-call. **The guest now registers
+  exactly one key, `GUEST_ESCAPE_HOTKEY`, and it is never the host's.** The host wants ergonomic,
+  the guest wants unhittable — do not unify them again.
+- **The overlay never idled.** `frame()` rescheduled unconditionally, so a full-screen `clearRect`
+  ran at 60 Hz on the *guest's* machine for the whole call with nothing on screen. Now it sleeps
+  when `idle()` and every listener calls `wake()`. Measured: 0 frames in 2s quiet, ~60/s live.
+  **If you add a new mark type, it must call `wake()`** or it will not appear until something else
+  does.
+- **A drop was permanent** — no reconnect, by an earlier explicit decision. Fine as a stated
+  limitation, fatal in front of a client. Now 400ms→8s backoff, reset only after a connection has
+  *held* `STABLE_MS`, and an explicit disconnect stops it dead.
+
+**Disproven — do not spend another session on it.** Webview throttling when the guest buries the
+control window behind their browser was the leading theory for the lag. It is wrong on macOS:
+measured 296 messages/5s and heartbeat lines exactly 5s apart, occluded or frontmost, RTT
+unchanged. Something else causes the lag and it has not been found yet.
+
+**The session left no evidence at all**, which is why this took a rebuild to investigate. The
+socket lives in the frontend and logged nothing. `log_line` now carries connects, drops, retries
+and the guest's escape hotkey into the same log the backend uses, plus a 5s heartbeat with
+message rate and RTT — and the *spacing* of those lines is itself the throttling measurement, so
+the next bad session answers this question without a rebuild.
+
 ## Windows — START HERE if you are on the Windows box (1 Sep 2026)
 
 **A Windows build was published on 31 Aug and it locked up a real machine.** Connected as a
