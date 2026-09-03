@@ -134,17 +134,21 @@ permission dialog. That was measured on real hardware, not assumed.</p>
 <p>Install it on <b>both</b> machines &mdash; it is one app, and you pick your side when you open it.</p>
 <table>
   <tr><td>1. Pick a side</td><td><b>I&rsquo;m pointing</b> if you are the one pointing; <b>Point at me</b> if you are sharing your screen.</td></tr>
-  <tr><td>2. Room code</td><td>One of you presses <b>New</b> and reads the six characters out. The other types them in. Both press Connect.</td></tr>
+  <tr><td>2. Room code</td><td>One of you presses <b>New</b>, then <b>Copy</b>, and sends the six characters to the other. Both press Connect. The code is hidden by default &mdash; anyone who can read it off a shared screen can join the room &mdash; so <b>Show</b> reveals it when you actually want it visible.</td></tr>
   <tr><td>3. Guest picks a screen</td><td>Whoever is sharing chooses which of their displays it is. The app never looks &mdash; you have to say.</td></tr>
   <tr><td>4. Host sets the aim area</td><td>Click <b>Set the aim area</b>, then drag a box around the window showing their screen. The box snaps to the shape of their display. Do it again whenever that window moves.</td></tr>
-  <tr><td>5. Point</td><td>Press the hotkey &mdash; <code>{{HOTKEY}}</code> by default &mdash; and move your mouse. Press it again to stop. Or switch to <b>Hold&nbsp;&#8997;</b> and point only while Option is down.</td></tr>
+  <tr><td>5. Point</td><td>Press the arm key &mdash; <code>{{HOTKEY}}</code> by default &mdash; and move your mouse. Press it again to stop. Or switch to <b>Hold&nbsp;&#8997;</b> and point only while Option is down.</td></tr>
+  <tr><td>6. Pulse</td><td><code>{{PULSEKEY}}</code> puts a ring on their screen where the ghost is. A key rather than a mouse click on purpose &mdash; a click would also land in whatever window is under your cursor.</td></tr>
 </table>
 
 <h2>What it does not do yet</h2>
-<p class="mute">Drawing, marks that stay on screen, accounts, a menu-bar icon, reconnecting on
-its own, and pointing from Windows. Clicking to pulse works; typing does not yet. This is a first
-build meant to answer one question: does pointing at someone else&rsquo;s screen actually feel
-good?</p>
+<p class="mute">Drawing, accounts, a menu-bar icon, reconnecting on its own, and pointing from
+Windows.</p>
+<p class="mute"><b>Pulses and text do not reach the other machine yet.</b> Both are built into the
+app and both draw on your own screen, but the relay in the middle carries pointer movement only
+&mdash; so the person you are pointing at will not see them. Pointing itself works fully, between
+machines, which is the one thing this build exists to answer: does pointing at someone
+else&rsquo;s screen actually feel good?</p>
 
 <footer>
   Ghost Pointer is by <a href="https://matewishkey.com">Mate Wish Key</a>, a brand of Mergodon Pty Ltd, Brisbane.<br>

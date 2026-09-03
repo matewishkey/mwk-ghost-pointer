@@ -25,11 +25,13 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const el = {
   role: $("role"), code: $<HTMLInputElement>("code"), gen: $<HTMLButtonElement>("gen"),
   roomStep: $("room-step"), displayStep: $("display-step"), display: $<HTMLSelectElement>("display"),
+  reveal: $<HTMLButtonElement>("reveal"), copyCode: $<HTMLButtonElement>("copy-code"),
   testOverlay: $<HTMLButtonElement>("test-overlay"), testOverlayHint: $("test-overlay-hint"),
   connectStep: $("connect-step"), connect: $<HTMLButtonElement>("connect"),
   dot: $("dot"), statusText: $("status-text"), rtt: $("rtt"),
   aimStep: $("aim-step"), aim: $<HTMLButtonElement>("aim"), aimHint: $("aim-hint"), peerHint: $("peer-hint"),
   armStep: $("arm-step"), mode: $("mode"), hotkey: $<HTMLInputElement>("hotkey"),
+  pulseKey: $<HTMLInputElement>("pulse-key"),
   armed: $("armed"), armedText: $("armed-text"), guestLive: $("guest-live"),
   textStep: $("text-step"), composer: $<HTMLTextAreaElement>("composer"), keep: $("keep"),
   textCount: $("text-count"), sendText: $<HTMLButtonElement>("send-text"),
@@ -38,7 +40,16 @@ const el = {
   diag: $<HTMLButtonElement>("diag"),
 };
 
-const DEFAULT_HOTKEY = "Control+Alt+Shift+G";
+const DEFAULT_HOTKEY = "Alt+Shift+A";
+const DEFAULT_PULSE_KEY = "Alt+Shift+B";
+/**
+ * What the arm key used to be, before pulsing moved off the mouse (mate, 3 Sep).
+ *
+ * Anyone who ran an earlier build has the old accelerator saved, and a stored value beats a
+ * changed default — so they would keep the old key and never see the new one. Migrated once,
+ * and only when it is still the old default: a key someone actually chose is left alone.
+ */
+const LEGACY_HOTKEY = "Control+Alt+Shift+G";
 const store = {
   get: (k: string, fallback = "") => localStorage.getItem(`gp.${k}`) ?? fallback,
   set: (k: string, v: string) => localStorage.setItem(`gp.${k}`, v),
@@ -55,12 +66,6 @@ let armMode: "tap" | "hold" = "tap";
 let armed = false;
 /** True on the frame after disarming, so exactly one `a:0` goes out to start the fade. */
 let wasArmed = false;
-/**
- * Last click totals seen. `null` until the first sample, because these counters are system-wide
- * and monotonic — treating the first absolute reading as a delta would fire a pulse for every
- * click made since the machine booted.
- */
-let prevClicks: { left: number; right: number } | null = null;
 let connected = false;
 /** Stay mode: the text mark persists until cleared. Off means it fades like the ghost does. */
 let keepText = true;
@@ -186,12 +191,14 @@ function toHostOverlay(nx: number, ny: number): { x: number; y: number } | null 
 }
 
 /**
- * A click while pointing puts a pulse on their screen.
+ * Put a pulse on their screen, where the ghost is.
  *
- * Fired from a real mouse click, which the M2 spike proved costs no permission to read. The
- * click *also* reaches whatever is under the cursor — but while pointing that is a video of
- * someone else's screen, where a click does nothing. Drawing cannot use this: a drag would drag
- * inside the call app too, which is why ink is bound to a held modifier instead.
+ * **Bound to a hotkey, not to a mouse click** (mate, 3 Sep). Click-to-pulse shipped on 31 Aug on
+ * the theory that while pointing, the thing under the cursor is a video of someone else's screen
+ * where a click does nothing. In real use that is false often enough to be dangerous: the click
+ * lands in whatever window is actually there and runs whatever it hits. Reading a click costs no
+ * permission, but it was never possible to *consume* one — so the only safe pulse is one that
+ * never involves the mouse button at all.
  */
 function firePulse(nx: number, ny: number, b: ClickButton): void {
   relay.sendClick(nx, ny, b);
@@ -219,20 +226,17 @@ void listen<Cursor>("cursor", (ev) => {
     if (local) void invoke("draw", { payload: { ...local, a: armed ? 1 : 0 } });
   }
   wasArmed = armed;
+});
 
-  // Deltas, and only while pointing — otherwise every click anywhere on the machine would throw
-  // a pulse onto someone else's screen. The totals are tracked even while disarmed, so arming
-  // never inherits a backlog of clicks made in between.
-  if (prevClicks && armed) {
-    // Capped: a double-click should show as two, but a counter that jumps (a wake from sleep,
-    // a missed second) must not spray the guest's screen.
-    const fire = (delta: number, b: ClickButton) => {
-      for (let i = 0; i < Math.min(delta, 3); i++) firePulse(nx, ny, b);
-    };
-    fire(c.clicks.left - prevClicks.left, 0);
-    fire(c.clicks.right - prevClicks.right, 2);
-  }
-  prevClicks = { ...c.clicks };
+/**
+ * The pulse hotkey.
+ *
+ * Only while pointing: a pulse that arrives when no ghost is visible appears out of nowhere on
+ * their screen, with nothing to explain it.
+ */
+void listen("pulse-key", () => {
+  if (role !== "point" || !connected || !armed) return;
+  firePulse(lastAim.x, lastAim.y, 0);
 });
 
 void listen("hotkey", () => {
@@ -552,7 +556,6 @@ function setStatus(kind: "" | "on" | "bad", text: string): void {
 async function teardown(): Promise<void> {
   setArmed(false);
   wasArmed = false;
-  prevClicks = null;
   // Clearing this here rather than in onClose covers the manual Disconnect too — that path
   // suppresses onClose on purpose, and a latency reading left over from a dead socket reads
   // as if the connection were still up.
@@ -568,15 +571,18 @@ async function teardown(): Promise<void> {
   el.connect.classList.remove("on");
 }
 
-async function applyHotkey(accel: string): Promise<void> {
+async function applyHotkey(accel: string, pulseAccel?: string): Promise<void> {
+  const pulse = pulseAccel ?? el.pulseKey.value.trim() ?? DEFAULT_PULSE_KEY;
   try {
-    await invoke("set_hotkey", { accelerator: accel });
+    await invoke("set_hotkeys", { arm: accel, pulse });
     el.hotkey.setCustomValidity("");
     store.set("hotkey", accel);
-  } catch {
+    store.set("pulseKey", pulse);
+  } catch (err) {
     // A shortcut the OS will not give us is worth saying out loud — silently not arming is the
-    // kind of bug that gets blamed on the network.
-    setStatus("bad", `Can't register ${accel} — another app has it`);
+    // kind of bug that gets blamed on the network. Both keys go down together, so this covers
+    // either one being refused; the message carries whichever the backend named.
+    setStatus("bad", `${err}`);
   }
 }
 
@@ -626,7 +632,31 @@ el.code.oninput = () => {
 };
 el.gen.onclick = () => { el.code.value = randomCode(); el.code.oninput!(new Event("input")); };
 
+/**
+ * The room code is masked by default.
+ *
+ * The relay has no auth — the code *is* the room — and the host is very often the one sharing a
+ * screen while they read it out. A six-character code sitting in plain text on a shared screen
+ * is the whole credential, handed to everyone watching. So it is hidden, copied rather than
+ * read aloud, and revealed only deliberately.
+ */
+el.reveal.onclick = () => {
+  const hidden = el.code.type === "password";
+  el.code.type = hidden ? "text" : "password";
+  el.reveal.textContent = hidden ? "Hide" : "Show";
+};
+
+el.copyCode.onclick = async () => {
+  const code = normaliseCode(el.code.value);
+  if (!code) return;
+  await navigator.clipboard.writeText(code);
+  el.copyCode.textContent = "Copied";
+  setTimeout(() => { el.copyCode.textContent = "Copy"; }, 1500);
+};
+
 el.hotkey.onchange = () => void applyHotkey(el.hotkey.value.trim() || DEFAULT_HOTKEY);
+el.pulseKey.onchange = () =>
+  void applyHotkey(el.hotkey.value.trim() || DEFAULT_HOTKEY, el.pulseKey.value.trim() || DEFAULT_PULSE_KEY);
 
 el.connect.onclick = async () => {
   if (connected) {
@@ -728,7 +758,9 @@ async function boot(): Promise<void> {
   };
 
   el.code.value = store.get("code");
-  el.hotkey.value = store.get("hotkey", DEFAULT_HOTKEY);
+  const savedHotkey = store.get("hotkey", DEFAULT_HOTKEY);
+  el.hotkey.value = savedHotkey === LEGACY_HOTKEY ? DEFAULT_HOTKEY : savedHotkey;
+  el.pulseKey.value = store.get("pulseKey", DEFAULT_PULSE_KEY);
   armMode = store.get("mode", "tap") === "hold" ? "hold" : "tap";
   for (const x of el.mode.querySelectorAll("button")) {
     x.setAttribute("aria-pressed", String(x.getAttribute("data-mode") === armMode));

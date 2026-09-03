@@ -15,7 +15,7 @@ mod platform;
 use platform::{Clicks, Display, Modifiers, Platform, Point};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl,
             WebviewWindow, WebviewWindowBuilder};
@@ -511,18 +511,43 @@ fn clear_marks(app: AppHandle) {
 // Hotkey
 // ---------------------------------------------------------------------------------------------
 
-/// Register the arm/disarm hotkey, replacing whatever was registered before.
+/// The two registered shortcuts, kept so the handler can tell which one fired.
+///
+/// The plugin hands the handler a `Shortcut`, not a name, and both of ours arrive through the
+/// same callback — so identity has to come from somewhere. This is that somewhere.
+static KEYS: Mutex<Option<(Shortcut, Shortcut)>> = Mutex::new(None);
+
+/// Register the arm/disarm and pulse hotkeys, replacing whatever was registered before.
 ///
 /// M0: `RegisterEventHotKey` — which is what this plugin uses — fires with no TCC grant at all,
 /// so this costs the user no permission dialog.
+///
+/// Both are registered together rather than one command per key: `unregister_all` is the only
+/// clean way to drop a previous binding, and doing that per-key would tear the other one down
+/// as a side effect.
 #[tauri::command]
-fn set_hotkey(app: AppHandle, accelerator: String) -> Result<(), String> {
+fn set_hotkeys(app: AppHandle, arm: String, pulse: String) -> Result<(), String> {
+    let parse = |a: &str| -> Result<Shortcut, String> {
+        a.parse()
+            .map_err(|_| format!("'{a}' is not a shortcut this platform can register"))
+    };
+    let arm_key = parse(&arm)?;
+    let pulse_key = parse(&pulse)?;
+    if arm_key == pulse_key {
+        return Err("Arm and pulse cannot be the same shortcut".into());
+    }
+
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
-    let shortcut: Shortcut = accelerator.parse().map_err(|_| {
-        format!("'{accelerator}' is not a shortcut this platform can register")
-    })?;
-    gs.register(shortcut).map_err(e)
+    gs.register(arm_key).map_err(e)?;
+    // Leaving arm registered but pulse not would be a half-armed state nobody can see, so undo
+    // the first registration if the second is refused.
+    if let Err(err) = gs.register(pulse_key) {
+        let _ = gs.unregister_all();
+        return Err(e(err));
+    }
+    *KEYS.lock().unwrap() = Some((arm_key, pulse_key));
+    Ok(())
 }
 
 /// A bug report's first ten minutes, already assembled.
@@ -592,11 +617,18 @@ pub fn run() {
         )
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
+                .with_handler(|app, shortcut, event| {
                     // Fire on press only. A key that toggles on both edges toggles twice.
-                    if event.state == ShortcutState::Pressed {
-                        let _ = app.emit("hotkey", ());
+                    if event.state != ShortcutState::Pressed {
+                        return;
                     }
+                    // Unknown shortcuts fall through to arm. Nothing else is ever registered,
+                    // and losing the way out of the overlay is worse than a spurious toggle.
+                    let name = match *KEYS.lock().unwrap() {
+                        Some((_, pulse)) if *shortcut == pulse => "pulse-key",
+                        _ => "hotkey",
+                    };
+                    let _ = app.emit(name, ());
                 })
                 .build(),
         )
@@ -648,7 +680,7 @@ pub fn run() {
             pulse,
             text,
             clear_marks,
-            set_hotkey,
+            set_hotkeys,
             diagnostics,
             cursor_visible,
         ])

@@ -31,6 +31,7 @@ sha="$(shasum -a 256 "$out/$name" | cut -c1-16)"
 # The default hotkey is defined once, in main.ts. Read it rather than restating it here — a
 # restated fact drifts, and a drifted fact on a download page is a support request.
 hotkey="$(sed -n 's/.*DEFAULT_HOTKEY = "\([^"]*\)".*/\1/p' "$repo/app/src/main.ts" | head -1)"
+pulsekey="$(sed -n 's/.*DEFAULT_PULSE_KEY = "\([^"]*\)".*/\1/p' "$repo/app/src/main.ts" | head -1)"
 
 sed -e "s|{{DMG}}|$name|g" \
     -e "s|{{VERSION}}|v$version|g" \
@@ -38,6 +39,7 @@ sed -e "s|{{DMG}}|$name|g" \
     -e "s|{{SHA}}|${sha}…|g" \
     -e "s|{{DATE}}|$(date -u +'%-d %b %Y')|g" \
     -e "s|{{HOTKEY}}|$hotkey|g" \
+    -e "s|{{PULSEKEY}}|$pulsekey|g" \
     "$here/template.html" > "$out/index.html"
 
 # Withdrawn downloads have to be redirected, not merely deleted.

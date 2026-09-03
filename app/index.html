@@ -28,11 +28,16 @@
       <section class="step" id="room-step" hidden>
         <label class="lbl" for="code">Room code</label>
         <div class="row">
-          <input id="code" class="code" maxlength="6" spellcheck="false" autocomplete="off"
-                 placeholder="ABC234" />
+          <input id="code" class="code" type="password" maxlength="6" spellcheck="false"
+                 autocomplete="off" placeholder="ABC234" />
           <button id="gen" class="ghost-btn" title="New random code">New</button>
         </div>
-        <p class="hint" id="code-hint">Read this out on the call. Not case sensitive.</p>
+        <div class="row code-row">
+          <button id="reveal" class="ghost-btn">Show</button>
+          <button id="copy-code" class="ghost-btn">Copy</button>
+        </div>
+        <p class="hint" id="code-hint">Hidden, because anyone reading it off your shared screen
+          could join the room. Copy it and send it to them.</p>
       </section>
 
       <section class="step" id="display-step" hidden>
@@ -67,9 +72,15 @@
           <button data-mode="hold"><b>Hold&nbsp;&#8997;</b><span>Only while Option is down.</span></button>
         </div>
         <div class="row hk">
-          <label class="lbl inline" for="hotkey">Hotkey</label>
+          <label class="lbl inline" for="hotkey">Arm</label>
           <input id="hotkey" class="mono-in" spellcheck="false" autocomplete="off" />
         </div>
+        <div class="row hk">
+          <label class="lbl inline" for="pulse-key">Pulse</label>
+          <input id="pulse-key" class="mono-in" spellcheck="false" autocomplete="off" />
+        </div>
+        <p class="hint">A pulse is a ring on their screen, where the ghost is. It is on a key,
+          not the mouse &mdash; a click would also land in whatever is underneath.</p>
         <div class="armed" id="armed"><span class="pip"></span><span id="armed-text">Not pointing</span></div>
       </section>
 
