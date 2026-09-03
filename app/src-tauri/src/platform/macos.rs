@@ -47,8 +47,13 @@ fn appkit_screens() -> HashMap<u32, (String, f64)> {
         }
         let key: *mut AnyObject =
             msg_send![class!(NSString), stringWithUTF8String: c"NSScreenNumber".as_ptr()];
-        let count: usize = msg_send![screens, count];
-        for i in 0..count {
+        // Signed all the way through. What comes back from `NSScreen.screens` is a Swift-bridged
+        // array, and it encodes both `count` and `objectAtIndex:` as NSInteger ('q'). Declaring
+        // either unsigned ('Q') trips objc2's debug-only type check and aborts the process the
+        // moment displays are read. Release builds skip that check, which is why the shipped app
+        // never showed this and `tauri dev` could not get past the first frame.
+        let count: isize = msg_send![screens, count];
+        for i in 0..count.max(0) {
             let screen: *mut AnyObject = msg_send![screens, objectAtIndex: i];
             if screen.is_null() {
                 continue;
