@@ -46,6 +46,38 @@ export interface PointerMsg {
   id: string;
 }
 
+/**
+ * The longest string a single `txt` may carry.
+ *
+ * **The relay has not stated its own ceiling yet** (issue #6 asks it to). Until it does this is
+ * the app's own limit, enforced at the composer with a visible count — never by clipping. Text
+ * is for handing over things to paste, so a silently truncated command is worse than a rejected
+ * one: it looks whole, and it is not.
+ */
+export const TEXT_MAX = 2000;
+
+/** A text mark as it arrives from the relay. `s` is carried verbatim — see `sendText`. */
+export interface TextMsg {
+  k: "txt";
+  /** Mark id, minted by the sender. Not the sender's id — that is `id`, as everywhere else. */
+  m: string;
+  x: number;
+  y: number;
+  s: string;
+  /** 1 on the last chunk of a mark. Chunks before it are the text mid-typing. */
+  end: 0 | 1;
+  /** 1 = stay mode (the mark persists), 0 = trail mode (it fades like the ghost). */
+  keep: 0 | 1;
+  t: number;
+  id: string;
+}
+
+/** Clear every mark in the room. Carries nothing — "clear everything, keep it simple for now". */
+export interface ClearMsg {
+  k: "clr";
+  id: string;
+}
+
 export function randomCode(): string {
   const bytes = new Uint8Array(CODE_LEN);
   crypto.getRandomValues(bytes);
@@ -67,6 +99,8 @@ type Handlers = {
   onPeers?: (peers: Peer[]) => void;
   onPointer?: (m: PointerMsg) => void;
   onClick?: (m: ClickMsg) => void;
+  onText?: (m: TextMsg) => void;
+  onClear?: (m: ClearMsg) => void;
   onRtt?: (ms: number) => void;
   onClose?: (why: string) => void;
 };
@@ -133,6 +167,12 @@ export class Relay {
       case "c":
         this.h.onClick?.(m as ClickMsg);
         break;
+      case "txt":
+        this.h.onText?.(m as TextMsg);
+        break;
+      case "clr":
+        this.h.onClear?.(m as ClearMsg);
+        break;
       case "pong":
         this.h.onRtt?.(Date.now() - m.t);
         break;
@@ -167,6 +207,30 @@ export class Relay {
    */
   sendClick(x: number, y: number, b: ClickButton): void {
     if (this.connected) this.ws!.send(JSON.stringify({ k: "c", x, y, b, t: Date.now() }));
+  }
+
+  /**
+   * Send a text mark, or a chunk of one as it is being typed.
+   *
+   * Dropped by the live relay today for the same reason `c` is, and sent anyway for the same
+   * reason: the host echoes it locally, so it works and can be tested now, and the day the
+   * relay learns `txt` the guest starts seeing them with no change here.
+   *
+   * `s` goes on the wire **verbatim** — not trimmed, not normalised, not re-encoded. Leading
+   * whitespace is meaningful in a pasted command block, and the string the guest copies has to
+   * be the string that was typed. Length is the caller's problem, capped at `TEXT_MAX` before
+   * it ever reaches here.
+   */
+  sendText(m: string, x: number, y: number, s: string, end: boolean, keep: boolean): void {
+    if (!this.connected) return;
+    this.ws!.send(JSON.stringify({
+      k: "txt", m, x, y, s, end: end ? 1 : 0, keep: keep ? 1 : 0, t: Date.now(),
+    }));
+  }
+
+  /** Clear every mark in the room. Same drop-today caveat as `sendText`. */
+  sendClear(): void {
+    if (this.connected) this.ws!.send(JSON.stringify({ k: "clr" }));
   }
 
   sendGeo(g: Geo): void {

@@ -4,8 +4,8 @@
 import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Relay, randomCode, normaliseCode, isValidCode } from "./protocol";
-import type { ClickButton, Geo, Peer, Role } from "./protocol";
+import { Relay, randomCode, normaliseCode, isValidCode, TEXT_MAX } from "./protocol";
+import type { ClickButton, Geo, Peer, Role, TextMsg } from "./protocol";
 
 interface Display {
   id: string; label: string;
@@ -31,6 +31,10 @@ const el = {
   aimStep: $("aim-step"), aim: $<HTMLButtonElement>("aim"), aimHint: $("aim-hint"), peerHint: $("peer-hint"),
   armStep: $("arm-step"), mode: $("mode"), hotkey: $<HTMLInputElement>("hotkey"),
   armed: $("armed"), armedText: $("armed-text"), guestLive: $("guest-live"),
+  textStep: $("text-step"), composer: $<HTMLTextAreaElement>("composer"), keep: $("keep"),
+  textCount: $("text-count"), sendText: $<HTMLButtonElement>("send-text"),
+  clearMarks: $<HTMLButtonElement>("clear-marks"), textHint: $("text-hint"),
+  inboxStep: $("inbox-step"), inbox: $("inbox"),
   diag: $<HTMLButtonElement>("diag"),
 };
 
@@ -58,6 +62,15 @@ let wasArmed = false;
  */
 let prevClicks: { left: number; right: number } | null = null;
 let connected = false;
+/** Stay mode: the text mark persists until cleared. Off means it fades like the ghost does. */
+let keepText = true;
+/**
+ * The mark id currently being composed, minted on the first keystroke and retired on send.
+ * One id per mark is what lets chunks replace each other instead of piling up.
+ */
+let draftId: string | null = null;
+/** Where the last pointer sample was, so text lands where the ghost is rather than mid-screen. */
+let lastAim: { x: number; y: number } = { x: 0.5, y: 0.5 };
 /** Which OS this build is running on, from `build_info`. Empty until `boot()` has answered. */
 let os = "";
 
@@ -91,6 +104,17 @@ const relay = new Relay({
     // straight on it with nothing to offset.
     if (role === "view") void invoke("pulse", { payload: { x: m.x, y: m.y, b: m.b } });
   },
+  onText: (m) => {
+    if (role !== "view") return;
+    void invoke("text", { payload: { m: m.m, x: m.x, y: m.y, s: m.s, end: m.end, keep: m.keep } });
+    showInbox(m);
+  },
+  onClear: () => {
+    if (role !== "view") return;
+    void invoke("clear_marks");
+    // The inbox deliberately survives a clear. Clearing is about taking marks off their screen,
+    // not about revoking a command they were part-way through pasting.
+  },
   onRtt: (ms) => { el.rtt.textContent = `${ms} ms`; },
   onClose: (why) => {
     connected = false;
@@ -110,6 +134,7 @@ function onPeers(peers: Peer[]): void {
         ? "They're here, but haven't picked a screen yet."
         : "Waiting for the other side to join…";
     el.aim.disabled = !connected;
+    composerState();
     if (connected) {
       setStatus("on", others.length ? "Connected — they're here" : "Connected — waiting for them");
     }
@@ -187,6 +212,9 @@ void listen<Cursor>("cursor", (ev) => {
   // tells the guest to start fading.
   if (armed || wasArmed) {
     relay.sendPointer(nx, ny, armed);
+    // Remembered even while disarming, so text sent after you stop pointing still lands at the
+    // last place you were pointing at rather than jumping to the middle of their screen.
+    lastAim = { x: nx, y: ny };
     const local = toHostOverlay(nx, ny);
     if (local) void invoke("draw", { payload: { ...local, a: armed ? 1 : 0 } });
   }
@@ -390,6 +418,129 @@ void listen<Rect>("aim-set", async (ev) => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// Text
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Text is composed in a focused box in our own window, never captured globally.
+ *
+ * That is the whole reason this feature costs no permission. Reading ordinary keystrokes while
+ * another app has focus needs Input Monitoring on macOS — `m0-findings.md` calls it the one
+ * exception with no way around it. A textarea we own reads only what is typed into it, which
+ * is not a TCC concern at all, and zero permissions is a hard constraint here.
+ */
+function composerState(): void {
+  const len = el.composer.value.length;
+  const over = len > TEXT_MAX;
+  el.textCount.textContent = len ? `${len}/${TEXT_MAX}` : "";
+  el.textCount.classList.toggle("over", over);
+  el.sendText.disabled = !connected || len === 0 || over;
+  el.clearMarks.disabled = !connected;
+  // Refusing is the point. Clipping to fit would hand them a command that looks whole and is
+  // not — the failure mode issue #6 asks the relay never to allow either.
+  el.textHint.textContent = over
+    ? `Too long by ${len - TEXT_MAX}. Shorten it — it will not be sent cut off.`
+    : "They see it appear as you type, and can copy it as text.";
+}
+
+/** Push the draft to the guest and to the host's own overlay. */
+function streamText(end: boolean): void {
+  if (!draftId) return;
+  const s = el.composer.value;
+  if (s.length > TEXT_MAX) return;
+  const { x, y } = lastAim;
+  relay.sendText(draftId, x, y, s, end, keepText);
+  const local = toHostOverlay(x, y);
+  if (local) {
+    void invoke("text", {
+      payload: { m: draftId, x: local.x, y: local.y, s, end: end ? 1 : 0, keep: keepText ? 1 : 0 },
+    });
+  }
+}
+
+el.composer.oninput = () => {
+  // A draft is a mark from the first keystroke, so the guest watches it arrive rather than
+  // having it appear whole — the same reason the ghost streams instead of waiting.
+  if (!draftId) draftId = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  composerState();
+  if (el.composer.value.length <= TEXT_MAX) streamText(false);
+};
+
+el.composer.onkeydown = (e) => {
+  // Enter sends, Shift+Enter makes a new line — text is multi-line, and a command block pasted
+  // in here keeps its own newlines either way.
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    el.sendText.click();
+  }
+};
+
+el.sendText.onclick = () => {
+  if (el.sendText.disabled) return;
+  streamText(true);
+  draftId = null;
+  el.composer.value = "";
+  composerState();
+};
+
+el.clearMarks.onclick = () => {
+  // Retract an uncommitted draft as well, or it would sit on their screen with no way to reach
+  // it — the draft is not a mark the relay knows about yet.
+  if (draftId) {
+    const { x, y } = lastAim;
+    relay.sendText(draftId, x, y, "", true, keepText);
+    void invoke("text", { payload: { m: draftId, x, y, s: "", end: 1, keep: 0 } });
+    draftId = null;
+    el.composer.value = "";
+  }
+  relay.sendClear();
+  void invoke("clear_marks");
+  composerState();
+};
+
+el.keep.onclick = (e) => {
+  const b = (e.target as HTMLElement).closest("button[data-keep]");
+  if (!b) return;
+  keepText = b.getAttribute("data-keep") === "1";
+  store.set("keep", keepText ? "1" : "0");
+  for (const x of el.keep.querySelectorAll("button")) {
+    x.setAttribute("aria-pressed", String((x.getAttribute("data-keep") === "1") === keepText));
+  }
+};
+
+/** The guest's list of received text, newest first, each with a Copy button. */
+function showInbox(m: TextMsg): void {
+  el.inboxStep.hidden = false;
+  let row = el.inbox.querySelector<HTMLElement>(`[data-mark="${CSS.escape(m.m)}"]`);
+  if (!row) {
+    row = document.createElement("div");
+    row.className = "note";
+    row.dataset.mark = m.m;
+    // Built element by element rather than from a markup string. Nothing here is interpolated
+    // today, but this row exists to display a string another machine sent — a template literal
+    // is one careless edit away from parsing that string as HTML.
+    row.append(document.createElement("pre"));
+    const copy = document.createElement("button");
+    copy.className = "ghost-btn copy";
+    copy.textContent = "Copy";
+    row.append(copy);
+    el.inbox.prepend(row);
+    while (el.inbox.children.length > 8) el.inbox.lastElementChild!.remove();
+  }
+  row.querySelector("pre")!.textContent = m.s;
+  row.classList.toggle("live", m.end === 0);
+}
+
+el.inbox.onclick = async (e) => {
+  const b = (e.target as HTMLElement).closest("button.copy");
+  if (!b) return;
+  const pre = b.parentElement!.querySelector("pre")!;
+  await navigator.clipboard.writeText(pre.textContent ?? "");
+  b.textContent = "Copied";
+  setTimeout(() => { b.textContent = "Copy"; }, 1500);
+};
+
+// ---------------------------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------------------------
 
@@ -406,6 +557,10 @@ async function teardown(): Promise<void> {
   // suppresses onClose on purpose, and a latency reading left over from a dead socket reads
   // as if the connection were still up.
   el.rtt.textContent = "";
+  // A draft belongs to the connection it was being typed into. Keeping it across a reconnect
+  // would leave a mark id the other side has never heard of.
+  draftId = null;
+  composerState();
   await invoke("stop_cursor_stream");
   await invoke("close_overlay");
   el.guestLive.hidden = true;
@@ -436,6 +591,10 @@ function setRole(r: Role): void {
   el.displayStep.hidden = r !== "view";
   el.aimStep.hidden = r !== "point";
   el.armStep.hidden = r !== "point";
+  el.textStep.hidden = r !== "point";
+  // The inbox appears when something actually arrives — an empty box on the guest's screen
+  // would be one more thing to explain for a feature they may never be sent.
+  if (r !== "view") el.inboxStep.hidden = true;
   validate();
 }
 
@@ -574,11 +733,16 @@ async function boot(): Promise<void> {
   for (const x of el.mode.querySelectorAll("button")) {
     x.setAttribute("aria-pressed", String(x.getAttribute("data-mode") === armMode));
   }
+  keepText = store.get("keep", "1") === "1";
+  for (const x of el.keep.querySelectorAll("button")) {
+    x.setAttribute("aria-pressed", String((x.getAttribute("data-keep") === "1") === keepText));
+  }
   const savedRole = store.get("role");
   if (savedRole === "point" || savedRole === "view") setRole(savedRole);
   aim = loadAim();
   showAim();
   validate();
+  composerState();
 }
 
 void boot();

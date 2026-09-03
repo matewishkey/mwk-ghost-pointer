@@ -73,9 +73,31 @@
         <div class="armed" id="armed"><span class="pip"></span><span id="armed-text">Not pointing</span></div>
       </section>
 
+      <section class="step host-only" id="text-step" hidden>
+        <label class="lbl" for="composer">Send them text</label>
+        <textarea id="composer" rows="3" spellcheck="false" autocomplete="off"
+                  placeholder="A command, a URL, anything they need to paste."></textarea>
+        <div class="row text-row">
+          <div class="seg small tiny" id="keep">
+            <button data-keep="1"><b>Stay</b></button>
+            <button data-keep="0"><b>Fade</b></button>
+          </div>
+          <span class="count" id="text-count"></span>
+          <button id="send-text" class="ghost-btn" disabled>Send</button>
+          <button id="clear-marks" class="ghost-btn" disabled>Clear</button>
+        </div>
+        <p class="hint" id="text-hint">They see it appear as you type, and can copy it as text.</p>
+      </section>
+
       <section class="step guest-only" id="guest-live" hidden>
         <div class="armed live"><span class="pip"></span><span>Overlay is running. Nothing else to do.</span></div>
         <p class="hint">Stuck? Press your hotkey to close the overlay and disconnect.</p>
+      </section>
+
+      <section class="step guest-only" id="inbox-step" hidden>
+        <label class="lbl">Text they sent you</label>
+        <div id="inbox"></div>
+        <p class="hint">Kept as text, not a picture &mdash; so you can copy it.</p>
       </section>
     </main>
 

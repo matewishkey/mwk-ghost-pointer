@@ -488,6 +488,25 @@ fn draw(app: AppHandle, payload: serde_json::Value) {
     }
 }
 
+/// Forward a text mark, or a chunk of one still being typed, to the overlay.
+///
+/// The payload is passed through untouched. Nothing on this path may trim or re-encode the
+/// string: text exists to hand over things to paste, and a mangled command is worse than none.
+#[tauri::command]
+fn text(app: AppHandle, payload: serde_json::Value) {
+    if let Some(win) = app.get_webview_window("overlay") {
+        let _ = win.emit("text", payload);
+    }
+}
+
+/// Drop every mark the overlay is holding.
+#[tauri::command]
+fn clear_marks(app: AppHandle) {
+    if let Some(win) = app.get_webview_window("overlay") {
+        let _ = win.emit("clear-marks", ());
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Hotkey
 // ---------------------------------------------------------------------------------------------
@@ -627,6 +646,8 @@ pub fn run() {
             cancel_aim,
             draw,
             pulse,
+            text,
+            clear_marks,
             set_hotkey,
             diagnostics,
             cursor_visible,

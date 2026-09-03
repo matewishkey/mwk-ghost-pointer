@@ -87,6 +87,96 @@ function drawPulse(now: number, p: { x: number; y: number; b: number; t: number 
   ctx.stroke();
 }
 
+// ---------------------------------------------------------------------------------------------
+// Text marks
+// ---------------------------------------------------------------------------------------------
+
+/** How long a trail-mode text mark lives once it is finished. Stay-mode marks never expire. */
+const TEXT_MS = 6000;
+/** Trail-mode marks fade over this long at the end of their life, rather than vanishing. */
+const TEXT_FADE_MS = 700;
+const TEXT_PAD = 12;
+const TEXT_LINE = 21;
+const TEXT_FONT = '500 15px ui-monospace, SFMono-Regular, Menlo, monospace';
+
+interface Mark { x: number; y: number; lines: string[]; keep: boolean; end: boolean; t: number }
+/** Keyed by mark id, because a mark arrives in chunks and each one replaces the last. */
+const marks = new Map<string, Mark>();
+
+listen<{ m: string; x: number; y: number; s: string; end: number; keep: number }>("text", (ev) => {
+  const { m, x, y, s, end, keep } = ev.payload;
+  // An empty final chunk is how the sender retracts a mark it never committed.
+  if (end === 1 && s === "") {
+    marks.delete(m);
+    return;
+  }
+  marks.set(m, {
+    x: Math.max(0, Math.min(1, x)) * W,
+    y: Math.max(0, Math.min(1, y)) * H,
+    lines: s.split("\n"),
+    keep: keep === 1,
+    end: end === 1,
+    // The clock starts when the mark is *finished*, so a slow typist's text does not begin
+    // fading out from under them while they are still typing it.
+    t: performance.now(),
+  });
+  if (marks.size > 40) marks.delete(marks.keys().next().value!);
+});
+
+listen("clear-marks", () => marks.clear());
+
+/**
+ * A text mark: mono text in a rounded card, red rule down the left edge.
+ *
+ * Drawn as a card rather than bare text because it lands on someone else's desktop, over
+ * whatever they happen to have open. Bare text on an arbitrary background is unreadable at
+ * exactly the moment it matters — and this is used to hand over commands to paste, where
+ * misreading a character is the whole failure.
+ */
+function drawMark(now: number, mk: Mark): void {
+  let alpha = 1;
+  if (!mk.keep && mk.end) {
+    const age = now - mk.t;
+    if (age > TEXT_MS) return;
+    if (age > TEXT_MS - TEXT_FADE_MS) alpha = (TEXT_MS - age) / TEXT_FADE_MS;
+  }
+
+  ctx.font = TEXT_FONT;
+  ctx.textBaseline = "top";
+  const wide = Math.max(...mk.lines.map((l) => ctx.measureText(l).width));
+  const boxW = Math.min(wide + TEXT_PAD * 2 + 6, W - 24);
+  const boxH = mk.lines.length * TEXT_LINE + TEXT_PAD * 2;
+  // Nudged clear of the ghost, then held inside the display — a mark placed near an edge must
+  // not hang off it, since the guest has no way to scroll an overlay.
+  const bx = Math.max(12, Math.min(mk.x + 18, W - boxW - 12));
+  const by = Math.max(12, Math.min(mk.y + 18, H - boxH - 12));
+
+  ctx.fillStyle = `rgba(19,19,19,${(0.93 * alpha).toFixed(3)})`;
+  ctx.beginPath();
+  ctx.roundRect(bx, by, boxW, boxH, 10);
+  ctx.fill();
+  ctx.strokeStyle = `rgba(${RED},${(0.9 * alpha).toFixed(3)})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(bx + 1, by + 8);
+  ctx.lineTo(bx + 1, by + boxH - 8);
+  ctx.stroke();
+
+  ctx.fillStyle = `rgba(255,255,255,${(0.96 * alpha).toFixed(3)})`;
+  mk.lines.forEach((line, i) => {
+    ctx.fillText(line, bx + TEXT_PAD + 6, by + TEXT_PAD + i * TEXT_LINE, boxW - TEXT_PAD * 2 - 6);
+  });
+
+  // A caret while the mark is still being typed, so the guest can tell "still coming" from
+  // "that's all of it" without being told.
+  if (!mk.end && Math.floor(now / 500) % 2 === 0) {
+    const last = mk.lines[mk.lines.length - 1] ?? "";
+    const cx = bx + TEXT_PAD + 6 + Math.min(ctx.measureText(last).width, boxW - TEXT_PAD * 2 - 8);
+    ctx.fillStyle = `rgba(${RED},${alpha.toFixed(3)})`;
+    ctx.fillRect(cx + 1, by + TEXT_PAD + (mk.lines.length - 1) * TEXT_LINE, 2, TEXT_LINE - 5);
+  }
+}
+
 listen<{ x: number; y: number; a: number }>("ghost", (ev) => {
   const { x, y, a } = ev.payload;
   // Normalised 0..1 in, this window's pixels out. The window covers exactly the display the
@@ -119,6 +209,13 @@ function frame(now: number): void {
   // Pulses outlive the ghost on purpose: disarming should not wipe a click you just made.
   while (pulses.length && now - pulses[0].t > PULSE_MS) pulses.shift();
   for (const p of pulses) drawPulse(now, p);
+
+  // Marks sit under the ghost: the dot is the live thing and should never be covered by text
+  // that is just sitting there.
+  for (const [id, mk] of marks) {
+    if (!mk.keep && mk.end && now - mk.t > TEXT_MS) marks.delete(id);
+    else drawMark(now, mk);
+  }
 
   if (alpha > 0.004 && render) {
     ctx.lineCap = "round";
