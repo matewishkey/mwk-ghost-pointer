@@ -184,9 +184,13 @@ Verified during research; sources in `docs/research.md`.
 
 - **Receiver on macOS needs no permissions.** Borderless transparent `NSWindow`, high window
   level, `ignoresMouseEvents`. This is the side a stranger installs, and it asks for nothing.
-- **Sender on macOS is the open question.** Global cursor position and a global hotkey.
-  Polling `NSEvent.mouseLocation` is expected to be permission-free; a *held modifier* likely
-  needs Input Monitoring or Accessibility. **Unverified — this is M0.**
+- **Sender on macOS needs no permissions either** (verified M0, 2026-08-24, macOS 26.6.1 on
+  Apple silicon, in a clean room holding zero TCC grants). Poll `NSEvent.mouseLocation` and
+  `NSEvent.modifierFlags`; hotkey via `RegisterEventHotKey`. Do **not** use a `CGEvent` tap — it
+  needs Input Monitoring, and `tapCreate` returns non-nil without the grant and then silently
+  delivers nothing, so a nil-check is a false pass. Mouse buttons and side-button state read the
+  same way, through `CGEventSource`, and cost nothing either. Method and evidence:
+  `app/m0-findings.md`.
 - **Windows needs no permission either, but the overlay is not solved.** `GetCursorPos` +
   `RegisterHotKey`; `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW` + topmost. The
   permission half held; the rest did not. A build published on 31 Aug 2026 locked up a real
