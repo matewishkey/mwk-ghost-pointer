@@ -558,6 +558,60 @@ fn set_hotkeys(app: AppHandle, arm: String, pulse: Option<String>) -> Result<(),
     Ok(())
 }
 
+// ---------------------------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------------------------
+
+/// Where the settings file lives. Created on first write, never on read.
+fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("no config dir: {e}"))?;
+    Ok(dir.join("settings.json"))
+}
+
+/// Read the settings file. A missing or unreadable file is `null`, never an error.
+///
+/// Settings used to live in the webview's `localStorage`, which is fine until you want to see
+/// what your shortcuts are, copy them to another machine, or fix a binding without launching the
+/// app. A file you can open is worth the few lines this costs.
+#[tauri::command]
+fn load_settings(app: AppHandle) -> Option<serde_json::Value> {
+    let path = settings_path(&app).ok()?;
+    let raw = std::fs::read_to_string(&path).ok()?;
+    match serde_json::from_str(&raw) {
+        Ok(v) => Some(v),
+        Err(err) => {
+            // Hand-edited into invalid JSON is the likely cause, and silently starting from
+            // defaults would look like the file being ignored.
+            log::warn!("settings at {} are not valid JSON, ignoring: {err}", path.display());
+            None
+        }
+    }
+}
+
+/// Write the settings file, creating the directory if this is the first time.
+///
+/// Written whole rather than merged: the frontend holds the entire object, so a partial write
+/// would be the frontend's bug pretending to be a file format.
+#[tauri::command]
+fn save_settings(app: AppHandle, values: serde_json::Value) -> Result<String, String> {
+    let path = settings_path(&app)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    }
+    let body = serde_json::to_string_pretty(&values).map_err(|e| e.to_string())?;
+    std::fs::write(&path, body).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
+/// Where the settings file is, so the UI can show a path someone can actually go and open.
+#[tauri::command]
+fn settings_file(app: AppHandle) -> String {
+    settings_path(&app).map(|p| p.display().to_string()).unwrap_or_default()
+}
+
 /// Let the frontend write to the same log the backend uses.
 ///
 /// The socket lives in the control window, so every connect, drop and reconnect happens in
@@ -705,6 +759,9 @@ pub fn run() {
             clear_marks,
             set_hotkeys,
             log_line,
+            load_settings,
+            save_settings,
+            settings_file,
             diagnostics,
             cursor_visible,
         ])
