@@ -21,6 +21,15 @@ const FADE_MS = 320;
  * for 60 Hz is this plus the trail.
  */
 const TAU_MS = 45;
+/**
+ * Overall ghost size (mate, 4 Sep: "a bit smaller would help").
+ *
+ * The ghost lands on a desktop that already has a real cursor on it, and on the host's own
+ * screen it sits on top of theirs — so it competes with a pointer rather than replacing one. It
+ * has to be findable at a glance and then get out of the way. Every radius below is expressed
+ * through this, so the proportions stay right when it changes.
+ */
+const GHOST = 0.7;
 
 let W = 0;
 let H = 0;
@@ -249,7 +258,7 @@ function frame(now: number): void {
       const b = trail[i];
       const k = 1 - (now - b.t) / TRAIL_MS;
       ctx.strokeStyle = `rgba(${RED},${(k * k * 0.5 * alpha).toFixed(3)})`;
-      ctx.lineWidth = 1.5 + k * 6;
+      ctx.lineWidth = (1.5 + k * 6) * GHOST;
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
@@ -259,29 +268,29 @@ function frame(now: number): void {
     const { x, y } = render;
     // Glow first, so the dot and ring sit on top of it. This is what keeps the ghost readable
     // on a white document and on a dark editor without changing colour.
-    const g = ctx.createRadialGradient(x, y, 0, x, y, 30);
+    const g = ctx.createRadialGradient(x, y, 0, x, y, 30 * GHOST);
     g.addColorStop(0, `rgba(${RED},${(0.42 * alpha).toFixed(3)})`);
     g.addColorStop(1, `rgba(${RED},0)`);
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.arc(x, y, 30, 0, Math.PI * 2);
+    ctx.arc(x, y, 30 * GHOST, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.strokeStyle = `rgba(255,255,255,${(0.85 * alpha).toFixed(3)})`;
-    ctx.lineWidth = 3.5;
+    ctx.lineWidth = 3.5 * GHOST;
     ctx.beginPath();
-    ctx.arc(x, y, 10, 0, Math.PI * 2);
+    ctx.arc(x, y, 10 * GHOST, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.strokeStyle = `rgba(${RED},${(0.95 * alpha).toFixed(3)})`;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2 * GHOST;
     ctx.beginPath();
-    ctx.arc(x, y, 10, 0, Math.PI * 2);
+    ctx.arc(x, y, 10 * GHOST, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.fillStyle = `rgba(${RED},${alpha.toFixed(3)})`;
     ctx.beginPath();
-    ctx.arc(x, y, 3.6, 0, Math.PI * 2);
+    ctx.arc(x, y, 3.6 * GHOST, 0, Math.PI * 2);
     ctx.fill();
   }
 

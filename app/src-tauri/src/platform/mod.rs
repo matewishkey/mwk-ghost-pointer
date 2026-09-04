@@ -83,6 +83,23 @@ pub struct Clicks {
     pub right: u32,
 }
 
+/// Whether the mouse's two side buttons are held right now.
+///
+/// **State, not counters** — the opposite of `Clicks`, and deliberately so. Counters exist
+/// because a fast click can finish inside one 16 ms tick and a state poll would miss it. These
+/// are not clicks: they are a held gesture, pressed with a modifier the way a hotkey is, and
+/// "is it down" is exactly the question. Same `CGEventSource` family as the modifier flags, so
+/// the same permission answer applies (`m0-findings.md`).
+///
+/// `b4` and `b5` are what a mouse labels buttons 4 and 5 — usually back and forward. Plenty of
+/// mice have neither, which is why this can only ever be an *alternative* binding to a key.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SideButtons {
+    pub b4: bool,
+    pub b5: bool,
+}
+
 /// Everything the app needs from the operating system.
 ///
 /// **Not every method is needed by every role.** The guest only ever calls `displays()`; the
@@ -97,6 +114,9 @@ pub trait Platform {
 
     /// Running count of mouse clicks. See `Clicks` — deltas only, never the absolute value.
     fn clicks() -> Clicks;
+
+    /// Whether the side buttons are held. See `SideButtons` for why this one is state.
+    fn side_buttons() -> SideButtons;
 
     /// All active displays. First entry is not guaranteed to be primary — check `is_primary`.
     ///

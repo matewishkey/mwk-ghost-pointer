@@ -18,6 +18,8 @@ interface Cursor {
   alt: boolean; ctrl: boolean; shift: boolean; meta: boolean;
   /** Running totals, not per-tick counts. Only the delta between two ticks means anything. */
   clicks: { left: number; right: number };
+  /** Side buttons, held-state rather than counted — see `SideButtons` in the platform layer. */
+  side: { b4: boolean; b5: boolean };
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -31,7 +33,8 @@ const el = {
   dot: $("dot"), statusText: $("status-text"), rtt: $("rtt"),
   aimStep: $("aim-step"), aim: $<HTMLButtonElement>("aim"), aimHint: $("aim-hint"), peerHint: $("peer-hint"),
   armStep: $("arm-step"), mode: $("mode"), hotkey: $<HTMLInputElement>("hotkey"),
-  pulseKey: $<HTMLInputElement>("pulse-key"),
+  pulseKey: $<HTMLInputElement>("pulse-key"), pulseMode: $("pulse-mode"),
+  pulseKeyRow: $("pulse-key-row"), pulseHint: $("pulse-hint"),
   armed: $("armed"), armedText: $("armed-text"), guestLive: $("guest-live"),
   guestEscape: $("guest-escape"),
   textStep: $("text-step"), composer: $<HTMLTextAreaElement>("composer"), keep: $("keep"),
@@ -87,6 +90,18 @@ let keepText = true;
 let draftId: string | null = null;
 /** Where the last pointer sample was, so text lands where the ghost is rather than mid-screen. */
 let lastAim: { x: number; y: number } = { x: 0.5, y: 0.5 };
+/**
+ * How a pulse is triggered.
+ *
+ * `key` is a global shortcut. `mouse` is Command plus a side button — mate's ask, after a plain
+ * click proved unusable: the click reached whatever window was under the cursor and ran it.
+ * Buttons 4 and 5 are the safest thing a mouse has, because almost nothing binds them, and
+ * requiring Command narrows it further. It is an *alternative*, never the default: plenty of
+ * mice, the Magic Mouse included, have no side buttons at all.
+ */
+let pulseMode: "key" | "mouse" = "key";
+/** Side buttons on the previous tick, so a hold fires exactly one pulse rather than sixty. */
+let prevSide = { b4: false, b5: false };
 /** Which OS this build is running on, from `build_info`. Empty until `boot()` has answered. */
 let os = "";
 
@@ -281,6 +296,15 @@ void listen<Cursor>("cursor", (ev) => {
     if (local) void invoke("draw", { payload: { ...local, a: armed ? 1 : 0 } });
   }
   wasArmed = armed;
+
+  // Command + a side button, on the press edge only. Held state would otherwise repeat at the
+  // poll rate and spray their screen.
+  if (pulseMode === "mouse" && armed) {
+    const down = c.meta && (c.side.b4 || c.side.b5);
+    const wasDown = prevSide.b4 || prevSide.b5;
+    if (down && !wasDown) firePulse(nx, ny, c.side.b5 ? 2 : 0);
+  }
+  prevSide = c.meta ? { ...c.side } : { b4: false, b5: false };
 });
 
 /**
@@ -290,9 +314,27 @@ void listen<Cursor>("cursor", (ev) => {
  * their screen, with nothing to explain it.
  */
 void listen("pulse-key", () => {
-  if (role !== "point" || !connected || !armed) return;
+  if (role !== "point" || !connected || !armed || pulseMode !== "key") return;
   firePulse(lastAim.x, lastAim.y, 0);
 });
+
+function showPulseMode(): void {
+  for (const b of el.pulseMode.querySelectorAll("button")) {
+    b.setAttribute("aria-pressed", String(b.getAttribute("data-pulse") === pulseMode));
+  }
+  el.pulseKeyRow.hidden = pulseMode !== "key";
+  el.pulseHint.textContent = pulseMode === "key"
+    ? "A ring on their screen, where the ghost is. A key rather than a click — a click would also land in whatever window is under your cursor."
+    : "Hold Command and press button 4 or 5 (button 5 pulses twice, like a right-click did). If nothing happens, your mouse has no side buttons — use a key instead.";
+}
+
+el.pulseMode.onclick = (e) => {
+  const b = (e.target as HTMLElement).closest("button[data-pulse]");
+  if (!b) return;
+  pulseMode = b.getAttribute("data-pulse") === "mouse" ? "mouse" : "key";
+  store.set("pulseMode", pulseMode);
+  showPulseMode();
+};
 
 void listen("hotkey", () => {
   if (role === "point" && armMode === "tap") {
@@ -824,6 +866,8 @@ async function boot(): Promise<void> {
   const savedHotkey = store.get("hotkey", DEFAULT_HOTKEY);
   el.hotkey.value = savedHotkey === LEGACY_HOTKEY ? DEFAULT_HOTKEY : savedHotkey;
   el.pulseKey.value = store.get("pulseKey", DEFAULT_PULSE_KEY);
+  pulseMode = store.get("pulseMode", "key") === "mouse" ? "mouse" : "key";
+  showPulseMode();
   armMode = store.get("mode", "tap") === "hold" ? "hold" : "tap";
   for (const x of el.mode.querySelectorAll("button")) {
     x.setAttribute("aria-pressed", String(x.getAttribute("data-mode") === armMode));

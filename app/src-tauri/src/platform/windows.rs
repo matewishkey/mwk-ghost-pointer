@@ -27,7 +27,7 @@
 //! `set_ignore_cursor_events` map onto `WS_EX_LAYERED | WS_EX_TRANSPARENT` and topmost.
 //! `raise_over_everything` in `lib.rs` is a no-op here — Windows has no menu bar to sit above.
 
-use super::{Clicks, Display, Modifiers, Platform, Point};
+use super::{Clicks, Display, Modifiers, Platform, Point, SideButtons};
 use tauri::Manager;
 
 pub struct Impl;
@@ -50,6 +50,10 @@ impl Platform for Impl {
     /// simply never fires a pulse.
     fn clicks() -> Clicks {
         Clicks::default()
+    }
+
+    fn side_buttons() -> SideButtons {
+        SideButtons::default()
     }
 
     fn displays(app: &tauri::AppHandle) -> Vec<Display> {

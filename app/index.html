@@ -75,12 +75,16 @@
           <label class="lbl inline" for="hotkey">Arm</label>
           <input id="hotkey" class="mono-in" spellcheck="false" autocomplete="off" />
         </div>
-        <div class="row hk">
-          <label class="lbl inline" for="pulse-key">Pulse</label>
+        <label class="lbl" style="margin-top:14px">How you pulse</label>
+        <div class="seg small" id="pulse-mode">
+          <button data-pulse="key"><b>A key</b><span>Works on any mouse.</span></button>
+          <button data-pulse="mouse"><b>&#8984; + button 4/5</b><span>Needs a mouse with side buttons.</span></button>
+        </div>
+        <div class="row hk" id="pulse-key-row">
+          <label class="lbl inline" for="pulse-key">Pulse key</label>
           <input id="pulse-key" class="mono-in" spellcheck="false" autocomplete="off" />
         </div>
-        <p class="hint">A pulse is a ring on their screen, where the ghost is. It is on a key,
-          not the mouse &mdash; a click would also land in whatever is underneath.</p>
+        <p class="hint" id="pulse-hint"></p>
         <div class="armed" id="armed"><span class="pip"></span><span id="armed-text">Not pointing</span></div>
       </section>
 

@@ -12,7 +12,7 @@
 
 mod platform;
 
-use platform::{Clicks, Display, Modifiers, Platform, Point};
+use platform::{Clicks, Display, Modifiers, Platform, Point, SideButtons};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -35,6 +35,9 @@ struct Sample {
     /// Nested rather than flattened: `Clicks` and `Modifiers` would otherwise both want to be
     /// merged into the same object, and `left` means very different things in each.
     clicks: Clicks,
+    /// Side-button state, on the same tick for the same reason clicks are — a pulse drawn a few
+    /// pixels from where the button was pressed is worse than no pulse.
+    side: SideButtons,
 }
 
 /// Owns the poll loop's stop flag. One loop at a time, ever.
@@ -126,6 +129,7 @@ fn start_cursor_stream(app: AppHandle, stream: tauri::State<'_, Stream>) {
                     y: p.y,
                     mods: platform::Impl::modifiers(),
                     clicks: platform::Impl::clicks(),
+                    side: platform::Impl::side_buttons(),
                 };
                 if last != Some(s) {
                     let _ = app.emit("cursor", s);

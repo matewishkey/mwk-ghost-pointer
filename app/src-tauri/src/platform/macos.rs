@@ -5,7 +5,7 @@
 //! the moment anything here reaches for a `CGEvent` tap, the app starts demanding Input
 //! Monitoring and the "nothing scary to install" pitch is gone.
 
-use super::{Clicks, Display, Modifiers, Platform, Point};
+use super::{Clicks, Display, Modifiers, Platform, Point, SideButtons};
 use core_graphics::display::CGDisplay;
 use core_graphics::event::{CGEvent, CGEventFlags};
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
@@ -22,6 +22,9 @@ extern "C" {
     // Same family, same answer on permissions — measured, not assumed. Event types are
     // CGEventType: 1 leftMouseDown, 3 rightMouseDown.
     fn CGEventSourceCounterForEventType(state_id: u32, event_type: u32) -> u32;
+    // And the same family again for button state. CGMouseButton numbering: 0 left, 1 right,
+    // 2 centre, 3 and 4 are the side buttons a mouse calls 4 and 5. Returns a C Boolean.
+    fn CGEventSourceButtonState(state_id: u32, button: u32) -> u8;
 }
 
 /// Real monitor name and backing scale for each display, keyed by `CGDirectDisplayID`.
@@ -120,6 +123,16 @@ impl Platform for Impl {
             Clicks {
                 left: CGEventSourceCounterForEventType(state, 1),
                 right: CGEventSourceCounterForEventType(state, 3),
+            }
+        }
+    }
+
+    fn side_buttons() -> SideButtons {
+        let state = CGEventSourceStateID::CombinedSessionState as u32;
+        unsafe {
+            SideButtons {
+                b4: CGEventSourceButtonState(state, 3) != 0,
+                b5: CGEventSourceButtonState(state, 4) != 0,
             }
         }
     }
