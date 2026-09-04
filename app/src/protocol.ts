@@ -58,10 +58,11 @@ export interface PointerMsg {
 /**
  * The longest string a single `txt` may carry.
  *
- * **The relay has not stated its own ceiling yet** (issue #6 asks it to). Until it does this is
- * the app's own limit, enforced at the composer with a visible count — never by clipping. Text
- * is for handing over things to paste, so a silently truncated command is worse than a rejected
- * one: it looks whole, and it is not.
+ * The relay enforces the same number (`MAX_TEXT`) and **rejects** anything longer with
+ * `{"k":"err","why":"text_too_long"}` rather than truncating it. This is the app-side half:
+ * a visible count and a dead Send button, so it never gets that far. Text is for handing over
+ * things to paste, and a silently truncated command is worse than a rejected one — it looks
+ * whole, and it is not. If the relay's number ever changes, change this one with it.
  */
 export const TEXT_MAX = 2000;
 
@@ -250,10 +251,10 @@ export class Relay {
   /**
    * Send a click pulse.
    *
-   * **The live relay drops this** — it ends its switch with `default: return`, so `c` goes
-   * nowhere until issue #6 lands. Sending it anyway is deliberate: the host draws its own pulse
-   * locally either way, so the feature is usable and testable now, and the day the relay learns
-   * `c` the guest starts seeing them with no change here.
+   * Carried by the relay since 4 Sep. It spent 31 Aug to 4 Sep hitting `default: return` and
+   * going nowhere, while the host drew its own pulse locally and looked like it worked — which
+   * is exactly how it reached a client call without anyone noticing. The local echo is still
+   * drawn first, because the round trip is too slow to wait for.
    */
   sendClick(x: number, y: number, b: ClickButton): void {
     if (this.connected) this.ws!.send(JSON.stringify({ k: "c", x, y, b, t: Date.now() }));
@@ -262,9 +263,8 @@ export class Relay {
   /**
    * Send a text mark, or a chunk of one as it is being typed.
    *
-   * Dropped by the live relay today for the same reason `c` is, and sent anyway for the same
-   * reason: the host echoes it locally, so it works and can be tested now, and the day the
-   * relay learns `txt` the guest starts seeing them with no change here.
+   * Carried by the relay since 4 Sep, along with `c` and `clr`. The host still echoes locally
+   * first — the round trip is too slow to wait on.
    *
    * `s` goes on the wire **verbatim** — not trimmed, not normalised, not re-encoded. Leading
    * whitespace is meaningful in a pasted command block, and the string the guest copies has to
@@ -278,7 +278,7 @@ export class Relay {
     }));
   }
 
-  /** Clear every mark in the room. Same drop-today caveat as `sendText`. */
+  /** Clear every mark in the room. Carried by the relay since 4 Sep. */
   sendClear(): void {
     if (this.connected) this.ws!.send(JSON.stringify({ k: "clr" }));
   }

@@ -18,24 +18,25 @@ machine. That page walks through it. Signing is a $99/yr Apple Developer account
 a clean double-click for someone else; it is not the App Store, and the store is closed to this
 app anyway (transparent overlay windows use an API Apple bans there).
 
-## Status — 2026-08-30
+## Status — 2026-09-04
 
 | Piece | State |
 |---|---|
 | `relay/` — Cloudflare Worker + Durable Object | **Live.** `wss://ghost-pointer-relay.mergodon.workers.dev` |
-| `app/` — Tauri desktop app, macOS | **Works.** Proven end to end 2026-08-30. |
-| `app/` — Windows | Stub. Same source tree, `platform/windows.rs` unimplemented. |
+| `app/` — Tauri desktop app, macOS | **Works.** v0.6.0, proven end to end. |
+| `app/` — Windows | **Withdrawn.** Built and published 31 Aug, locked up a real machine, pulled the same day. |
 | `download/` — the download page | **Live.** Built on the Mac, deployed from the Linux box. |
 
 Proven, not assumed: a scripted host → the live relay → the app as guest → a ghost drawn on a
 real desktop at 22-24 ms, over other applications, with clicks still passing through the overlay
 to the app underneath.
 
-**In:** host/guest roles, six-character room codes, aim-rect calibration, display picker, ghost
+**In:** host/guest roles, ten-character room codes, aim-rect calibration, display picker, ghost
 with a ~600 ms fading trail, interpolation, tap-to-arm and hold-to-point, instant local echo for
-the host, live latency.
-**Not yet:** drawing or annotation, persistent marks, accounts, reconnect, tray icon, Windows,
-signing.
+the host, live latency, reconnect with backoff, click pulses, text marks the other side can copy,
+and settings in a file you can edit. A room holds one pointer and one viewer and refuses everyone
+else.
+**Not yet:** drawing/ink, marks that survive a rejoin, accounts, a tray icon, Windows, signing.
 
 ## On a new machine
 
@@ -65,7 +66,8 @@ rules are in scope.
     node tools/probe.mjs ws://127.0.0.1:8787             # test local
     node tools/probe.mjs wss://ghost-pointer-relay.mergodon.workers.dev
 
-Last run against production: 13/13 checks passed, p50 17-18 ms / p95 22-36 ms round-trip from Brisbane.
+Last run against production: 13/13 checks passed. Round-trip figures move with the day and the
+network — `docs/spec.md` carries the measured range and the conditions rather than one number.
 
 ## Building the app yourself
 

@@ -25,8 +25,9 @@ size="$(du -h "$out/$name" | cut -f1 | tr -d ' ')"
 sha="$(shasum -a 256 "$out/$name" | cut -c1-16)"
 
 # No Windows installer is published right now — the 31 Aug build stopped responding on a real
-# machine and was withdrawn the same evening. The CI workflow still builds it; nothing copies it
-# here until it has actually been run on Windows.
+# machine and was withdrawn the same evening. The CI workflow still builds it, and it has since
+# been run on real Windows hardware (1 Sep). The gate is no longer "has it run" but "has a human
+# confirmed the hang and cursor fixes on screen" — see app/CLAUDE.md § Windows.
 
 # The default hotkey is defined once, in main.ts. Read it rather than restating it here — a
 # restated fact drifts, and a drifted fact on a download page is a support request.

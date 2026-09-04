@@ -58,39 +58,63 @@ handful of files that are shared.
    it.** If the app needs a protocol change, `gh issue create` against this repo and say what
    and why. Same instinct as the cross-repo rule — don't reach into the other side's lane.
 4. **Only the Linux box runs `wrangler`.** One Worker name, so two deployers means whoever ran
-   last silently wins. The Mac develops against the deployed URL, never redeploys it. The same
-   split is why `download/` is built on the Mac and deployed from Linux: only a Mac can build a
-   Mac app, and only the Linux box holds the Cloudflare token — the Mac deliberately has no age
-   key, so it cannot decrypt one. The `.dmg` travels between them on the shared drive, never
-   through git.
+   last silently wins. `download/` is built on the Mac — only a Mac can build a Mac app — and
+   deployed from Linux, which holds the Cloudflare token. The `.dmg` travels between them on the
+   shared drive, never through git.
+
+   **The Mac drives that deploy over SSH**, and that is the intended route, not a workaround
+   (mate, 3 Sep: *"always push the new version to the website do not hold it back"*). It builds,
+   copies the assembled site to the share, then runs `wrangler` **on the dev box**, so the one
+   deployer rule still holds and the token never leaves the machine that owns it:
+
+       ssh mergodon@192.168.172.25
+       cd ~/projects/td-sops && set -a && eval "$(sops -d apps/claude-cloudflare.enc.env | grep -E '^CLOUDFLARE_')" && set +a
+       cd ~/share/work/mat-<repo>/<slug>/site-<version> && wrangler pages deploy . --project-name ghost-pointer-app
+
+   This Mac **does** hold an age key (registered 4 Sep), but it is scoped to the `td-pw` registry
+   alone and cannot decrypt the Cloudflare token. `.sops.yaml` in `td-sops` says observer Macs are
+   never added to an `apps/` rule — do not widen it to save an SSH hop.
+
+   **Verify a deploy by content, never by status code.** Pages answers `200` with `index.html`
+   for a file that has not propagated yet, which produced a false "verified" during the 4 Sep
+   session. Compare bytes or content type.
 5. **Coordinate through GitHub Issues**, not through the docs. Both machines have `gh`. An
    issue is the only channel that reaches the other session, since neither can see the other's
    conversation.
 
-## State as of 2026-08-30
+## State as of 2026-09-04
 
 - **This repo is public** (`matewishkey/mwk-ghost-pointer`). Nothing secret has ever been in
   it — history was scanned before publishing. Keep it that way: no account ids, no tokens, no
   keys, not even in a comment or a test fixture.
 - Relay live at `wss://ghost-pointer-relay.mergodon.workers.dev`, 13/13 probe checks passing
-  over the internet, p50 17-18 ms / p95 22-36 ms RTT from Brisbane (range across runs, not one measurement).
-- That relay URL is now in a public README and the endpoint has no auth, so anyone can join
-  any room code and use the account as a WebSocket relay. Fine at this scale (~$0.007/room-hour)
-  and correct for an MVP. The fix when it matters is a signed join token from a `/token`
-  endpoint, not obscurity — don't bother before there are real users.
+  over the internet. RTT from Brisbane has ranged p50 17-40 ms / p95 22-47 ms across runs on
+  different days — quote the range, not one measurement.
+- **A room holds one pointer and one viewer and refuses everyone else** (4 Sep). This, not code
+  length, is what stops someone with a correct code joining a live session — they cannot watch
+  and cannot send. Codes are 10 chars now (6-12 accepted, so installed builds keep working).
+  **It has a cost:** someone who takes the free seat *before* your guest arrives locks the
+  legitimate person out, which is a denial-of-service the open design did not have. The endpoint
+  is still unauthenticated, and the signed join token is still the real fix — issue #4.
 - `node tools/probe.mjs <ws-url>` is the regression test. Run it after any relay change.
   It exits non-zero on failure. Local: `cd relay && npm run dev`, then probe `ws://127.0.0.1:8787`.
-- **App: M0, M1 and most of M2 are done. It builds, runs, and has been proven end to end.**
-  A scripted host on the LAN drove a ghost onto this Mac's real desktop through the live relay,
-  at 22-24 ms, drawn over other apps, and clicks still went through the overlay to the app
-  underneath. Room codes, aim-rect calibration, display picker, trail, tap-to-arm *and*
-  hold-to-point, live RTT — all in. Not done: reconnect, tray icon, Windows, signing.
+- **App: M0-M2 done, and most of M3.** Proven end to end: a scripted host drove a ghost onto a
+  real desktop through the live relay, drawn over other apps, with clicks still passing through
+  the overlay. In: room codes, aim calibration, display picker, trail, interpolation, tap-to-arm
+  and hold-to-point, live RTT, **reconnect with backoff**, **click pulses**, **text marks with a
+  Copy button on the guest side**, settings in a JSON file, session logging with a 5 s heartbeat.
+  Not done: tray icon, Windows, signing, ink/drawing, and marks do not survive a rejoin.
+- **The 3 Sep client call is the reference bug report** — laggy, dropped, stopped working. Causes
+  and, importantly, the one theory that was *disproven* are in `app/CLAUDE.md`. Read it before
+  re-investigating lag: webview throttling under occlusion is measurably not the cause, and the
+  remaining lag has no identified root cause.
 - **Windows: built, published, withdrawn** (31 Aug). It locked up a real machine — the overlay
   covered the screen and ate every click. Diagnosis and the unverified fix are in
   `app/CLAUDE.md` § Windows; read it before touching that path. macOS is unaffected and is what
   the site serves.
 - **Distribution is unsigned, on purpose.** `https://ghost-pointer-app.matewishkey.com` serves a
-  universal (Apple silicon + Intel) `.dmg` and the Gatekeeper walkthrough. Signing needs a $99/yr
+  universal (Apple silicon + Intel) `.dmg` and the Gatekeeper walkthrough. Every release is
+  published there immediately — see rule 4 above; do not leave a build sitting on the share. Signing needs a $99/yr
   Apple Developer account and only buys a clean double-click for someone who isn't mate — it is
   **not** the App Store, and the store is closed to us anyway (`macOSPrivateApi`, issue #3).
 - The macOS permission spike came back clean — **neither role needs any permission, and no
@@ -115,9 +139,15 @@ handful of files that are shared.
   It has survived every feature so far, including typing, and each time only because a design
   was chosen that did not need one. Before adding anything that wants a TCC grant, assume there
   is a design that does not and go find it. See `app/m0-findings.md` for which gestures are free.
-- **Annotation is in scope now** (mate, 2026-08-31): click, draw, type. This reverses
-  `docs/spec.md` § MVP scope, which still lists it as out — the spec is the relay side's to
-  change, so it is tracked in issue #6 rather than edited here.
+- **Annotation is in scope** (mate, 2026-08-31): click, draw, type. `docs/spec.md` now carries
+  `c`, `txt` and `clr`, so the reversal is recorded in the contract rather than only in an issue.
+  Ink strokes and stored marks are still out — issue #6.
+- **A pulse is a key or a side button, never a plain click** (mate, 3 Sep). Reading a click costs
+  no permission but the app cannot *consume* one, so it still lands in whatever window is under
+  the cursor and runs it. That was found in real use, not in review.
+- **The guest's escape hotkey is never the host's arm key** (4 Sep). The guest registers one
+  global shortcut and it disconnects them, so it has to be a chord nobody hits by accident.
+  Unifying them ended a live client session mid-call.
 
 ## Build order
 

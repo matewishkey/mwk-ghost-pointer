@@ -4,7 +4,9 @@
 //! cursor, modifiers and clicks are read only by the pointing side. So a Windows machine can
 //! receive a ghost today, on one implemented function, long before it can send one.
 //!
-//! **None of this has ever run.** There is no Windows machine on this project, so what follows
+//! **Parts of this have now run on real Windows hardware** (1 Sep) — click-through and cursor
+//! visibility were tested there, and that box has rustup and MSVC Build Tools. See
+//! `../../../CLAUDE.md` § Windows before touching the overlay path. What follows
 //! is written to be as boring as possible: no Win32, no unsafe, no new dependency. `displays()`
 //! goes through Tauri's own monitor list, which is code that is already tested by everyone else
 //! using Tauri, rather than through `EnumDisplayMonitors` written blind by someone who cannot

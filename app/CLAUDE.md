@@ -16,29 +16,35 @@ Platform differences go behind `#[cfg(target_os = "…")]` inside `src-tauri/src
 against a shared trait. You are writing the macOS implementation and, in doing so, defining
 the trait that Windows will later implement. Keep the trait honest and minimal:
 
-- `cursor_position() -> (f64, f64)` — global, screen coordinates
-- `register_hotkey(...)` / arm-disarm signalling
-- `overlay_window()` — transparent, always-on-top, click-through
-- `displays() -> Vec<Display>` — for the viewer's display picker
+What the trait actually declares today (`platform/mod.rs`) — the hotkey is the global-shortcut
+plugin and the overlay is a set of `lib.rs` commands, neither of which is platform-trait work:
+
+- `cursor_position() -> Option<Point>` — global, top-left origin, logical units
+- `modifiers() -> Modifiers` — polled, never tapped
+- `clicks() -> Clicks` — monotonic counters, deltas only
+- `side_buttons() -> SideButtons` — held state of mouse buttons 4 and 5
+- `displays(&AppHandle) -> Vec<Display>` — for the viewer's display picker
 
 ## The relay is live — develop against it
 
     wss://ghost-pointer-relay.mergodon.workers.dev
 
 No auth, no key, nothing to configure. Join a room with
-`wss://…/r/<CODE>?role=point|view&name=<label>`, where `<CODE>` is 6 chars from
-`ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. Full message list in `../docs/spec.md`.
+`wss://…/r/<CODE>?role=point|view&name=<label>`, where `<CODE>` is 6-12 chars from
+`ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (the app mints 10). A room holds **one pointer and one
+viewer** and answers `409 room_full` to anyone else. Full message list in `../docs/spec.md`.
 
 Sanity-check the relay any time with `node ../tools/probe.mjs wss://ghost-pointer-relay.mergodon.workers.dev`
 — 13 checks, exits non-zero on failure. If those pass, the relay is fine and the bug is here.
 
-## Where it got to — 2026-08-30
+## Where it got to — 2026-09-04
 
 M0, M1 and the bulk of M2 are done. The app builds, runs, and has been driven end to end. What
 exists:
 
 - `src-tauri/src/lib.rs` — commands, the 60 Hz cursor poll loop, the three windows, the hotkey.
-- `src-tauri/src/platform/` — the trait and the macOS implementation. Windows is still a stub.
+- `src-tauri/src/platform/` — the trait and the macOS implementation. Windows implements
+  `displays()` and stubs the rest; a build shipped on 31 Aug and was withdrawn the same day.
 - `src/protocol.ts` — the wire protocol, matching `../docs/spec.md`.
 - `src/main.ts` / `src/overlay.ts` / `src/aim.ts` — control window, ghost renderer, aim picker.
 - `../download/` — the public download page, built here and deployed from the Linux box.
@@ -48,9 +54,10 @@ desktop, 22-24 ms, drawn over other apps, and a click through the overlay still 
 underneath. Click-through is the one bug that would be unforgivable, so it gets re-checked after
 any change to the overlay window.
 
-**Still open:** reconnect after a drop, a tray icon, hotkey conflict detection beyond "it failed
-to register", Windows, and signing. Room codes, aim calibration, display picker, trail,
-interpolation, tap-to-arm, hold-to-point and live RTT are all in.
+**Still open:** a tray icon, hotkey conflict detection beyond "it failed to register", Windows,
+signing, ink/drawing, and marks surviving a rejoin. Room codes, aim calibration, display picker,
+trail, interpolation, tap-to-arm, hold-to-point, live RTT, **reconnect with backoff**, **click
+pulses**, **text marks** and **file-backed settings** are all in.
 
 ## The M0 findings that still constrain the code
 
@@ -69,12 +76,14 @@ needs**, on either side. First-run onboarding has nothing to ask for.
   ghost lands mirrored. Issue #5 proposes `geo` carry `backingScaleFactor`; the app does not
   currently need it, because the guest maps into its own overlay in logical units.
 
-## M2 annotation — decided 2026-08-31, blocked on the relay (#6)
+## M2 annotation — decided 2026-08-31, shipped 4 Sep for click and text
 
-Mate expanded the scope: click, draw and type on the guest's screen. This **reverses**
-`../docs/spec.md` § MVP scope, which lists drawing and persistent marks as out. His call, made
-explicitly. `relay/src/index.ts` ends its switch with `default: return`, so none of it can ship
-until #6 lands — do not start the wire work against a guessed shape.
+Mate expanded the scope: click, draw and type on the guest's screen. `../docs/spec.md` now
+carries `c`, `txt` and `clr`, so the reversal lives in the contract rather than only in an issue.
+
+**Ink strokes and stored marks are still out** (#6). Nothing is stored, so a guest who joins late
+or reconnects sees only what arrives after them. Do not start the storage work against a guessed
+shape — that is the part that turns the room from a pipe into a small document.
 
 Settled, and not to be relitigated:
 
@@ -102,12 +111,12 @@ Settled, and not to be relitigated:
 - **Marks have two modes, both wanted:** persistent and fading. That is a per-mark flag on the
   wire, not a room setting, so switching mid-session leaves existing marks alone.
 
-### Text — app side built 3 Sep 2026, still waiting on the relay
+### Text — app side 3 Sep, carried by the relay 4 Sep
 
-`txt` and `clr` are implemented end to end *inside the app*, to the exact shapes proposed in #6.
-The relay still drops both, so the guest sees nothing across the wire yet; the host's local echo
-is what makes it testable today, the same arrangement click-to-pulse has had since 31 Aug. When
-#6 lands, nothing here should need to change — if it does, #6 changed shape and this is the bug.
+`txt` and `clr` are implemented end to end and the relay forwards them. For one day the app side
+existed alone and the host's local echo made it *look* like it worked — which is how click
+pulses reached a client call while never leaving the machine. If a feature draws locally and
+travels over the wire, test the wire separately; the echo will lie to you.
 
 Verified, not assumed: 14 assertions on the exact JSON leaving `sendText`/`sendClear`; the
 overlay driven headlessly through `clear-marks` and through retracting an uncommitted draft,
@@ -129,6 +138,35 @@ both ending on a provably empty canvas; the app run from source with the compose
 `TEXT_MAX` is the app's own 2000-character ceiling, enforced at the composer with a visible
 count and a refusal. It is a placeholder for whatever number the relay picks; #6 asks that
 overflow be visible rather than silently clipped, and this side already behaves that way.
+
+## Settings live in a file, not localStorage (4 Sep)
+
+`load_settings` / `save_settings` / `settings_file` in `lib.rs` read and write
+`<app config dir>/settings.json`. `main.ts` loads it once in `boot()` into a plain object, so
+`store.get` stays synchronous; `store.set` writes the whole object back, fire-and-forget, and
+**logs a failure** — settings that silently fail to save look like the app ignoring you and you
+only find out on the next launch.
+
+Anyone upgrading from a localStorage build is migrated on first launch and the file is written
+immediately. Keep the migration until nothing pre-0.6.0 is in the wild.
+
+## Pulse binding — a key or a side button, never a plain click (mate, 3 Sep)
+
+Click-to-pulse shipped 31 Aug on the reasoning that while pointing, the thing under the cursor is
+a video of someone else's screen where a click does nothing. **In real use that is false often
+enough to be dangerous** — the click lands in a real window and runs whatever it hits. Reading a
+click costs no permission, but the app can never *consume* one, so the only safe pulse never
+touches the button. Do not reintroduce it, even behind a setting.
+
+The alternative binding is **Command + mouse button 4/5**, via `CGEventSourceButtonState` — same
+API family as the modifier flags, so the same permission answer M0 measured. It is **state, not
+counters**, which is the opposite of `Clicks` and deliberate: a click can finish inside one 16 ms
+tick, but a held gesture with a modifier is an "is it down" question. Fired on the press edge
+only; held state would repeat at the poll rate.
+
+**It stays an alternative, never the default.** Plenty of mice — the Magic Mouse included — have
+no side buttons, and the app cannot tell in advance. **Unverified on hardware with real side
+buttons**; nobody has pressed one yet.
 
 ## The 3 Sep client call — what actually broke, and what did not (fixed in v0.4.0)
 
@@ -185,8 +223,9 @@ verify, then show — and destroys the window if arming fails. On Windows it now
 ex-style back and requires `WS_EX_LAYERED | WS_EX_TRANSPARENT`, because "the setter returned
 Ok" and "the mouse passes through" turned out to be different claims.
 
-**Defect 3 is still not fixed.** The frontend still swallows the error. Do that first — it is
-five lines and it is why the failure was invisible.
+~~**Defect 3 is still not fixed.**~~ **Fixed 1 Sep**, on both roles — `main.ts` wraps
+`invoke("open_overlay")` in try/catch in `startHosting` and `startViewing`, and a failure now
+reaches the status line instead of vanishing as an unhandled rejection.
 
 ### Do these before anything else
 
