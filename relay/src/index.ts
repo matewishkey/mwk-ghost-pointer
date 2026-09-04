@@ -15,8 +15,18 @@ export interface Env {
   ROOM: DurableObjectNamespace<Room>;
 }
 
-/** Room codes are 6 chars from an unambiguous alphabet (no I/O/0/1). */
-const CODE_RE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
+/**
+ * Room codes: 6 to 12 chars from an unambiguous alphabet (no I/O/0/1).
+ *
+ * The app mints 10 (32^10 ≈ 1.1 quadrillion). It used to mint 6, and issue #4 argued that
+ * lengthening was "a real tradeoff, not a free win" *because the code gets read aloud on a call*.
+ * That stopped being true on 3 Sep, when the code became masked-and-copied rather than spoken —
+ * so the tradeoff it was weighed against no longer exists and the entropy is close to free.
+ *
+ * The range stays open at 6 so an older build already in someone's Applications folder keeps
+ * working. Narrow it once nothing below 10 is in the wild.
+ */
+const CODE_RE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6,12}$/;
 
 /** Runaway guard. Well above the 60 Hz a sane client sends. */
 const MAX_MSG_PER_SEC = 200;
@@ -99,6 +109,22 @@ export class Room extends DurableObject<Env> {
     const url = new URL(request.url);
     const role = url.searchParams.get("role") === "point" ? "point" : "view";
     const name = (url.searchParams.get("name") ?? role).slice(0, 40);
+
+    // A room holds exactly one pointer and one viewer, and refuses everyone else.
+    //
+    // This is the meaningful protection, not the code length. Guessing a code only helps while
+    // there is a seat free: once both people are connected the room is **closed**, and someone
+    // holding the correct code still cannot get in — cannot watch, and cannot send a ghost or a
+    // text mark onto the guest's screen. The exposed window shrinks to the seconds between the
+    // first person connecting and the second arriving.
+    //
+    // Dead sockets do not hold a seat. A guest whose connection drops reconnects into their own
+    // slot rather than being locked out of their own session by the corpse of the old one, which
+    // matters now that the app retries automatically.
+    const live = this.members(true);
+    if (live.some((m) => m.role === role)) {
+      return json({ error: "room_full", role }, 409);
+    }
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
@@ -215,9 +241,16 @@ export class Room extends DurableObject<Env> {
     this.broadcast({ k: "leave", id: me.id }, me.id);
   }
 
-  private members(): Member[] {
+  /**
+   * Everyone in the room. `liveOnly` drops sockets that are no longer open.
+   *
+   * An abruptly dropped socket can linger before `webSocketClose` fires, and a seat held by a
+   * corpse would refuse the very person trying to reconnect into it.
+   */
+  private members(liveOnly = false): Member[] {
     return this.ctx
       .getWebSockets()
+      .filter((ws) => !liveOnly || ws.readyState === WebSocket.READY_STATE_OPEN)
       .map((ws) => ws.deserializeAttachment() as Member | null)
       .filter((m): m is Member => m !== null);
   }
