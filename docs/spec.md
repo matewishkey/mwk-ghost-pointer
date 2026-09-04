@@ -15,7 +15,7 @@ No screen capture. No remote control. No input injection. The app only ever *dra
 | **point** | Mate (host) | Reads its own global cursor position, maps it into the aim rect, sends samples. |
 | **view** | Guest | Draws the incoming ghost on a transparent click-through overlay. |
 
-One room can hold several of each; MVP assumes one of each.
+One room holds exactly one of each and refuses anyone else — see Room capacity below.
 
 ## Coordinate mapping
 
@@ -52,19 +52,23 @@ Binary packing is a later optimisation with no reason to do it now.
 
 **Connect:** `wss://<relay>/r/<CODE>?role=point|view&name=<label>[&hint=<region>]`
 
-`<CODE>` is 6 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no I/O/0/1 — they get misread
+`<CODE>` is 6-12 chars (the app mints 10) from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no I/O/0/1 — they get misread
 when someone reads a code aloud on a call). Anything else → HTTP 400. **Codes are
 case-insensitive** — the relay uppercases before validating, so `prbe27` and `PRBE27` are the
 same room.
 
-**Before changing the length or alphabet, know the tradeoff.** 6 chars over a 32-char
-alphabet is 32⁶ ≈ 1.07 billion combinations. The endpoint is unauthenticated, so the code is
-the only thing keeping strangers out — but the realistic risk is *griefing* (someone drawing
-a ghost cursor on your guest's screen), not data theft, because the payload is only
-coordinates. One-in-a-billion per guess against a room that exists for minutes is a non-issue.
-The 6-char length is a deliberate usability choice: the code gets read aloud on a call.
-Lengthening it trades that away for entropy that isn't the binding constraint — the real fix,
-if it ever matters, is a signed join token (tracked in issue #4).
+**The code is not the access control — capacity is.** 10 chars over a 32-char alphabet is
+32¹⁰ ≈ 1.1 quadrillion, but that is not what makes a leaked code survivable: a room holds one
+pointer and one viewer and refuses everyone else, so a correct code buys nothing once both
+people are connected. See Room capacity below.
+
+Two earlier arguments here have expired and are recorded so nobody reinstates them. *"6 chars
+is a deliberate usability choice, the code gets read aloud"* stopped being true on 3 Sep 2026,
+when the app began masking the code and offering Copy — nobody reads it out, so length is close
+to free. *"The realistic risk is griefing, not data theft, because the payload is only
+coordinates"* stopped being true on 4 Sep, when `txt` began carrying commands and URLs.
+
+The endpoint is still unauthenticated and the real fix is still a signed join token (issue #4).
 
 `hint` optionally pins the room's Durable Object to a region (`oc`, `apac`, `weur`, `eeur`,
 `wnam`, `enam`, `sam`, `afr`, `me`); anything else → HTTP 400. Without it the object is
@@ -183,8 +187,12 @@ Verified during research; sources in `docs/research.md`.
 - **Sender on macOS is the open question.** Global cursor position and a global hotkey.
   Polling `NSEvent.mouseLocation` is expected to be permission-free; a *held modifier* likely
   needs Input Monitoring or Accessibility. **Unverified — this is M0.**
-- **Windows needs nothing either way.** `GetCursorPos` + `RegisterHotKey`;
-  `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW` + topmost.
+- **Windows needs no permission either, but the overlay is not solved.** `GetCursorPos` +
+  `RegisterHotKey`; `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW` + topmost. The
+  permission half held; the rest did not. A build published on 31 Aug 2026 locked up a real
+  machine — creating a second webview from a live command hangs, and `transparent(true)` puts
+  WebView2 in a composition mode that never applies cursor updates. Both are diagnosed and fixed
+  in `app/`, neither is confirmed on screen by a human. `app/CLAUDE.md` § Windows before touching it.
 - **Linux is dropped from scope** (2026-08-23). Wayland makes global pointer position
   deliberately unavailable and GNOME refuses layer-shell; it's blocked, not merely hard.
 
