@@ -206,3 +206,18 @@ textarea::placeholder { color: var(--mute); font-family: var(--body); }
 .code[type="password"] { letter-spacing: 0.34em; font-size: 20px; }
 .code-row { margin-top: 8px; gap: 8px; }
 .code-row button { flex: 1; }
+
+
+/* Set-once settings, folded away so the everyday controls stay reachable. */
+details.fold { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+details.fold > summary {
+  cursor: pointer; list-style: none; user-select: none;
+  font: 600 12px/1 var(--body); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--mute); padding: 4px 0;
+}
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before { content: "\25B8"; display: inline-block; width: 14px; }
+details.fold[open] > summary::before { content: "\25BE"; }
+details.fold > summary:hover { color: var(--red-deep); }
+.filepath { word-break: break-all; }
+.filepath code { font-size: 11px; }

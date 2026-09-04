@@ -28,8 +28,8 @@
       <section class="step" id="room-step" hidden>
         <label class="lbl" for="code">Room code</label>
         <div class="row">
-          <input id="code" class="code" type="password" maxlength="6" spellcheck="false"
-                 autocomplete="off" placeholder="ABC234" />
+          <input id="code" class="code" type="password" maxlength="12" spellcheck="false"
+                 autocomplete="off" placeholder="ABC234KMPT" />
           <button id="gen" class="ghost-btn" title="New random code">New</button>
         </div>
         <div class="row code-row">
@@ -66,26 +66,35 @@
       </section>
 
       <section class="step host-only" id="arm-step" hidden>
-        <label class="lbl">How you point</label>
-        <div class="seg small" id="mode">
-          <button data-mode="tap"><b>Tap to arm</b><span>Press once, on. Again, off.</span></button>
-          <button data-mode="hold"><b>Hold&nbsp;&#8997;</b><span>Only while Option is down.</span></button>
-        </div>
-        <div class="row hk">
-          <label class="lbl inline" for="hotkey">Arm</label>
-          <input id="hotkey" class="mono-in" spellcheck="false" autocomplete="off" />
-        </div>
-        <label class="lbl" style="margin-top:14px">How you pulse</label>
-        <div class="seg small" id="pulse-mode">
-          <button data-pulse="key"><b>A key</b><span>Works on any mouse.</span></button>
-          <button data-pulse="mouse"><b>&#8984; + button 4/5</b><span>Needs a mouse with side buttons.</span></button>
-        </div>
-        <div class="row hk" id="pulse-key-row">
-          <label class="lbl inline" for="pulse-key">Pulse key</label>
-          <input id="pulse-key" class="mono-in" spellcheck="false" autocomplete="off" />
-        </div>
-        <p class="hint" id="pulse-hint"></p>
         <div class="armed" id="armed"><span class="pip"></span><span id="armed-text">Not pointing</span></div>
+        <p class="hint" id="keys-summary"></p>
+
+        <!-- Folded away on purpose. These are set once and then never touched again, and while
+             they sat open they pushed the thing you actually use — the text box — off screen. -->
+        <details class="fold" id="keys-fold">
+          <summary>Keys &amp; buttons</summary>
+          <label class="lbl">How you point</label>
+          <div class="seg small" id="mode">
+            <button data-mode="tap"><b>Tap to arm</b><span>Press once, on. Again, off.</span></button>
+            <button data-mode="hold"><b>Hold&nbsp;&#8997;</b><span>Only while Option is down.</span></button>
+          </div>
+          <div class="row hk">
+            <label class="lbl inline" for="hotkey">Arm</label>
+            <input id="hotkey" class="mono-in" spellcheck="false" autocomplete="off" />
+          </div>
+          <label class="lbl" style="margin-top:14px">How you pulse</label>
+          <div class="seg small" id="pulse-mode">
+            <button data-pulse="key"><b>A key</b><span>Works on any mouse.</span></button>
+            <button data-pulse="mouse"><b>&#8984; + button 4/5</b><span>Needs side buttons.</span></button>
+          </div>
+          <div class="row hk" id="pulse-key-row">
+            <label class="lbl inline" for="pulse-key">Pulse key</label>
+            <input id="pulse-key" class="mono-in" spellcheck="false" autocomplete="off" />
+          </div>
+          <p class="hint" id="pulse-hint"></p>
+          <p class="hint filepath">Saved in <code id="settings-path">a config file</code> &mdash;
+            editable by hand, and it travels to another machine.</p>
+        </details>
       </section>
 
       <section class="step host-only" id="text-step" hidden>

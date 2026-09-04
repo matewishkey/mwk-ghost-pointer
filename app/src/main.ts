@@ -26,6 +26,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 
 const el = {
   role: $("role"), code: $<HTMLInputElement>("code"), gen: $<HTMLButtonElement>("gen"),
+  settingsPath: $("settings-path"), keysSummary: $("keys-summary"), keysFold: $("keys-fold"),
   roomStep: $("room-step"), displayStep: $("display-step"), display: $<HTMLSelectElement>("display"),
   reveal: $<HTMLButtonElement>("reveal"), copyCode: $<HTMLButtonElement>("copy-code"),
   testOverlay: $<HTMLButtonElement>("test-overlay"), testOverlayHint: $("test-overlay-hint"),
@@ -64,10 +65,54 @@ const LEGACY_HOTKEY = "Control+Alt+Shift+G";
  * host wants ergonomic, the guest wants unhittable.
  */
 const GUEST_ESCAPE_HOTKEY = "Control+Alt+Shift+G";
+/**
+ * Settings, held in memory and mirrored to a JSON file next to the app's data.
+ *
+ * They used to live in the webview's `localStorage`, which works but is invisible: you cannot
+ * read your own shortcuts, copy them to a second machine, or fix a bad binding without launching
+ * the app. Reads stay synchronous — everything is loaded once at boot — and writes are
+ * fire-and-forget, because nothing here is worth blocking a keystroke on.
+ */
+let settings: Record<string, string> = {};
+let settingsPath = "";
+
 const store = {
-  get: (k: string, fallback = "") => localStorage.getItem(`gp.${k}`) ?? fallback,
-  set: (k: string, v: string) => localStorage.setItem(`gp.${k}`, v),
+  get: (k: string, fallback = "") => settings[k] ?? fallback,
+  set: (k: string, v: string) => {
+    if (settings[k] === v) return;
+    settings[k] = v;
+    void invoke("save_settings", { values: settings }).catch((err) => {
+      // Worth saying out loud: settings that silently fail to save look like the app ignoring
+      // you, and you only find out on the next launch.
+      logLine(`could not save settings: ${err}`, "error");
+    });
+  },
 };
+
+/**
+ * Load settings from the file, falling back to whatever `localStorage` still holds.
+ *
+ * The fallback is a one-time migration for anyone upgrading from a build that only had
+ * `localStorage`, and it writes the file immediately so the next launch reads the file.
+ */
+async function loadSettings(): Promise<void> {
+  settingsPath = await invoke<string>("settings_file").catch(() => "");
+  const fromFile = await invoke<Record<string, string> | null>("load_settings").catch(() => null);
+  if (fromFile && typeof fromFile === "object") {
+    settings = { ...fromFile };
+    return;
+  }
+  const migrated: Record<string, string> = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith("gp.")) migrated[key.slice(3)] = localStorage.getItem(key) ?? "";
+  }
+  settings = migrated;
+  if (Object.keys(migrated).length) {
+    logLine(`migrated ${Object.keys(migrated).length} setting(s) out of localStorage into the file`);
+    await invoke("save_settings", { values: settings }).catch(() => {});
+  }
+}
 
 let role: Role | null = null;
 let displays: Display[] = [];
@@ -211,7 +256,7 @@ function onPeers(peers: Peer[]): void {
     el.aim.disabled = !connected;
     composerState();
     if (connected) {
-      setStatus("on", others.length ? "Connected — they're here" : "Connected — waiting for them");
+      setStatus("on", others.length ? "Connected — room is now full" : "Connected — waiting for them");
     }
   }
 }
@@ -318,11 +363,19 @@ void listen("pulse-key", () => {
   firePulse(lastAim.x, lastAim.y, 0);
 });
 
+/** One line saying what the keys currently are, since the panel that sets them is folded shut. */
+function showKeysSummary(): void {
+  const arm = el.hotkey.value || DEFAULT_HOTKEY;
+  const pulse = pulseMode === "mouse" ? "⌘ + button 4/5" : (el.pulseKey.value || DEFAULT_PULSE_KEY);
+  el.keysSummary.textContent = `Arm ${arm} · pulse ${pulse}`;
+}
+
 function showPulseMode(): void {
   for (const b of el.pulseMode.querySelectorAll("button")) {
     b.setAttribute("aria-pressed", String(b.getAttribute("data-pulse") === pulseMode));
   }
   el.pulseKeyRow.hidden = pulseMode !== "key";
+  showKeysSummary();
   el.pulseHint.textContent = pulseMode === "key"
     ? "A ring on their screen, where the ghost is. A key rather than a click — a click would also land in whatever window is under your cursor."
     : "Hold Command and press button 4 or 5 (button 5 pulses twice, like a right-click did). If nothing happens, your mouse has no side buttons — use a key instead.";
@@ -759,9 +812,14 @@ el.copyCode.onclick = async () => {
   setTimeout(() => { el.copyCode.textContent = "Copy"; }, 1500);
 };
 
-el.hotkey.onchange = () => void applyHotkey(el.hotkey.value.trim() || DEFAULT_HOTKEY);
-el.pulseKey.onchange = () =>
+el.hotkey.onchange = () => {
+  showKeysSummary();
+  void applyHotkey(el.hotkey.value.trim() || DEFAULT_HOTKEY);
+};
+el.pulseKey.onchange = () => {
+  showKeysSummary();
   void applyHotkey(el.hotkey.value.trim() || DEFAULT_HOTKEY, el.pulseKey.value.trim() || DEFAULT_PULSE_KEY);
+};
 
 el.connect.onclick = async () => {
   if (connected) {
@@ -845,6 +903,7 @@ function loadAim(): Rect | null {
 // ---------------------------------------------------------------------------------------------
 
 async function boot(): Promise<void> {
+  await loadSettings();
   await showBuild();
   applyPlatformLimits();
   displays = await invoke<Display[]>("displays");
@@ -866,6 +925,7 @@ async function boot(): Promise<void> {
   const savedHotkey = store.get("hotkey", DEFAULT_HOTKEY);
   el.hotkey.value = savedHotkey === LEGACY_HOTKEY ? DEFAULT_HOTKEY : savedHotkey;
   el.pulseKey.value = store.get("pulseKey", DEFAULT_PULSE_KEY);
+  el.settingsPath.textContent = settingsPath || "a config file";
   pulseMode = store.get("pulseMode", "key") === "mouse" ? "mouse" : "key";
   showPulseMode();
   armMode = store.get("mode", "tap") === "hold" ? "hold" : "tap";

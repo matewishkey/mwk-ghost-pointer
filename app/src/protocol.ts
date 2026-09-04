@@ -4,9 +4,18 @@
 
 export const RELAY = "wss://ghost-pointer-relay.mergodon.workers.dev";
 
-/** No I, O, 0 or 1 — they get misheard when someone reads the code aloud on a call. */
+/** No I, O, 0 or 1 — they get misheard if anyone does still read a code aloud. */
 export const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-export const CODE_LEN = 6;
+/**
+ * Length of a code this app mints. 32^10 ≈ 1.1 quadrillion.
+ *
+ * Six was chosen so it could be read out on a call. Since the code became masked-and-copied that
+ * reason is gone, and the extra entropy costs a person nothing — they press Copy either way.
+ */
+export const CODE_LEN = 10;
+/** What we still *accept*, so a code from an older build keeps working. */
+export const CODE_MIN = 6;
+export const CODE_MAX = 12;
 
 export type Role = "point" | "view";
 
@@ -87,11 +96,15 @@ export function randomCode(): string {
 export function normaliseCode(raw: string): string {
   // The relay uppercases before validating, so codes are case-insensitive. Doing it here too
   // means the field shows the user the same string the room is actually keyed on.
-  return raw.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, CODE_LEN);
+  return raw.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, CODE_MAX);
 }
 
 export function isValidCode(code: string): boolean {
-  return code.length === CODE_LEN && [...code].every((c) => ALPHABET.includes(c));
+  return (
+    code.length >= CODE_MIN &&
+    code.length <= CODE_MAX &&
+    [...code].every((c) => ALPHABET.includes(c))
+  );
 }
 
 type Handlers = {
