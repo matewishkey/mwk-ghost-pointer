@@ -127,6 +127,27 @@ added 4 Sep 2026 — **click pulses and text marks** (`c`, `txt`, `clr`).
 **Out:** ink strokes, persistent marks that survive a rejoin, accounts, billing, app stores, key
 injection, Linux, auto display detection, installers/signing.
 
+### Room capacity (4 Sep 2026)
+
+**A room holds one `point` and one `view`, and refuses everyone else.** A join naming a role that
+is already taken gets `409 {"error":"room_full","role":"…"}` before the WebSocket upgrade, so a
+client sees a failed connection rather than a socket that opens and goes quiet.
+
+This is what makes a leaked code survivable: guessing one only helps while a seat is free, so
+once both parties are connected a correct code buys nothing — no watching, no sending. It is not
+authentication and does not pretend to be. Two consequences a client has to handle:
+
+- **A dropped socket does not hold its seat.** Capacity counts only sockets still open, so an
+  automatic reconnect gets back into its own slot instead of being locked out by the corpse of
+  the old one.
+- **Taking a free seat denies it to the rightful owner.** Someone who joins before the second
+  party arrives locks that party out. That is a denial-of-service the unrestricted design did not
+  have, and it is the reason the signed join token in issue #4 is still the real fix.
+
+Codes are **6 to 12 characters**; the app mints 10 (32^10 ≈ 1.1 quadrillion). The range stays
+open at 6 so builds already installed keep working — narrow it once nothing shorter is in the
+wild.
+
 ### Annotation messages (4 Sep 2026)
 
 Mate reversed the earlier "no annotation" scope on 31 Aug; the app side shipped first and sat
