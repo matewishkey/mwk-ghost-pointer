@@ -121,10 +121,37 @@ tier saves nothing at this scale — if tiers happen, sell them on feel, not on 
 ## MVP scope
 
 **In:** two modes, room code, aim-rect calibration, display picker, ghost + ~600 ms fading
-trail, local echo on the sender, connection status with live RTT.
+trail, local echo on the sender, connection status with live RTT, reconnect with backoff, and —
+added 4 Sep 2026 — **click pulses and text marks** (`c`, `txt`, `clr`).
 
-**Out:** drawing/annotation, persistent marks, accounts, billing, app stores, click or key
-injection, Linux, auto display detection, reconnect polish, installers/signing.
+**Out:** ink strokes, persistent marks that survive a rejoin, accounts, billing, app stores, key
+injection, Linux, auto display detection, installers/signing.
+
+### Annotation messages (4 Sep 2026)
+
+Mate reversed the earlier "no annotation" scope on 31 Aug; the app side shipped first and sat
+unusable because the relay dropped everything it did not recognise. These are **senders only** —
+a `view` sending one is dropped, mirroring how `geo` is viewers-only — and stamped with the
+sender's `id` on the way out, like `p`.
+
+| Message | Meaning |
+|---|---|
+| `{"k":"c","x":…,"y":…,"b":0,"t":…}` | Click pulse. `b`: 0 left, 2 right. Fanned out, never stored. |
+| `{"k":"txt","m":"<markId>","x":…,"y":…,"s":"…","end":0,"keep":1}` | Text mark, streamed as typed. `end:1` commits it. `keep:1` persists on screen, `keep:0` fades. |
+| `{"k":"clr"}` | Clear every mark. Broadcast only. |
+
+`m` is a mark id minted by the sender — not the sender's id, which is `id` as everywhere else.
+
+`s` is forwarded **byte for byte**: not trimmed, normalised or re-encoded. Leading whitespace is
+meaningful in a pasted command block. Over `MAX_TEXT` (2000 characters) the message is
+**rejected, not truncated**, and the sender receives `{"k":"err","why":"text_too_long","max":…,"m":…}`.
+A command that arrives looking whole while missing its tail is worse than one that never
+arrives — the first one gets run.
+
+**Still out, deliberately:** nothing is stored. There is no `marks` replay, so a guest who joins
+late, or reconnects, sees only what is sent after they arrive. Ink strokes are not carried at
+all. Both are tracked in issue #6; storage is the part that turns the room from a pipe into a
+small document, and it was not needed to make pointing and pulsing useful.
 
 ## Platform notes
 

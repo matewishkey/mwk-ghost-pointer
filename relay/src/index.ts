@@ -21,6 +21,15 @@ const CODE_RE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
 /** Runaway guard. Well above the 60 Hz a sane client sends. */
 const MAX_MSG_PER_SEC = 200;
 
+/**
+ * Longest string a `txt` may carry. Matches the app's own composer limit.
+ *
+ * Overflow is **rejected, never truncated**. Text exists so a person can paste a command, and a
+ * command that arrives looking whole while missing its tail is worse than one that never arrives:
+ * the first one gets run. The sender is told, rather than left believing it went.
+ */
+const MAX_TEXT = 2000;
+
 /** Durable Object placement regions. Anything else is a 400, not a runtime error. */
 const HINTS = ["oc", "apac", "weur", "eeur", "wnam", "enam", "sam", "afr", "me"] as const;
 
@@ -150,6 +159,39 @@ export class Room extends DurableObject<Env> {
         me.geo = { w: g.w, h: g.h, label: String(g.label ?? "").slice(0, 60) };
         ws.serializeAttachment(me);
         this.broadcast({ k: "geo", id: me.id, g: me.geo }, me.id);
+        return;
+      }
+
+      // Click pulse. Ephemeral: fanned out, never stored, so a late joiner never sees an old
+      // one. Senders only — a viewer pulsing onto the pointer's own screen is not a feature
+      // anyone asked for, and it mirrors how `geo` is viewers-only.
+      case "c": {
+        if (me.role !== "point") return;
+        this.broadcast({ ...msg, id: me.id }, me.id);
+        return;
+      }
+
+      // A text mark, streamed as it is typed (`end:0`) and committed with `end:1`.
+      //
+      // `s` is forwarded byte for byte: not trimmed, not normalised, not re-encoded. Leading
+      // whitespace is meaningful in a pasted command block, so touching it corrupts the payload.
+      case "txt": {
+        if (me.role !== "point") return;
+        const text = typeof msg.s === "string" ? msg.s : null;
+        if (text === null || typeof msg.m !== "string") return;
+        if (text.length > MAX_TEXT) {
+          ws.send(JSON.stringify({ k: "err", why: "text_too_long", max: MAX_TEXT, m: msg.m }));
+          return;
+        }
+        this.broadcast({ ...msg, id: me.id }, me.id);
+        return;
+      }
+
+      // Clear every mark. Nothing is stored yet, so this is purely a broadcast — when `keep:1`
+      // marks do get storage (#6) this must wipe it too, or a reconnecting guest gets them back.
+      case "clr": {
+        if (me.role !== "point") return;
+        this.broadcast({ k: "clr", id: me.id }, me.id);
         return;
       }
 
