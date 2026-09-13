@@ -125,6 +125,13 @@ type Handlers = {
 const RETRY_MS = [400, 1000, 2000, 4000, 8000];
 /** How long a connection has to hold before it counts as good and the backoff resets. */
 const STABLE_MS = 5000;
+/** How often a ping goes out. Also how often the watchdog below gets to run. */
+const PING_MS = 3000;
+/**
+ * Silence that counts as death. Three pings' worth, against a round trip measured in tens of
+ * milliseconds — so this only fires when pongs have genuinely stopped, not on a slow one.
+ */
+const DEAD_MS = 10000;
 
 /**
  * One room, one socket — and it reconnects.
@@ -146,6 +153,8 @@ export class Relay {
   private retryTimer: number | null = null;
   private stableTimer: number | null = null;
   private attempt = 0;
+  /** When a pong last came back. The watchdog in `startPinging` measures against this. */
+  private lastPongAt = 0;
   private peers = new Map<string, Peer>();
   /** Last sample actually put on the wire — used to skip frames that would say nothing new. */
   private lastSent = { x: -1, y: -1, a: -1 };
@@ -225,6 +234,7 @@ export class Relay {
         this.h.onClear?.(m as ClearMsg);
         break;
       case "pong":
+        this.lastPongAt = Date.now();
         this.h.onRtt?.(Date.now() - m.t);
         break;
       // Unknown `k` is ignored by design — that is what makes adding messages backwards-compatible.
@@ -304,11 +314,49 @@ export class Relay {
   }
 
   private startPinging(): void {
+    // A fresh socket has never ponged, so start the clock at open. Otherwise the first tick
+    // would measure against 0 and declare a healthy connection dead immediately.
+    this.lastPongAt = Date.now();
     const ping = () => {
+      // Watchdog first, so a timer that has been suspended (machine asleep, webview throttled
+      // while occluded) notices the silence on its very first tick after waking rather than
+      // waiting another interval.
+      if (Date.now() - this.lastPongAt > DEAD_MS) return this.failDead();
       if (this.connected) this.ws!.send(JSON.stringify({ k: "ping", t: Date.now() }));
     };
     ping();
-    this.pingTimer = window.setInterval(ping, 3000);
+    this.pingTimer = window.setInterval(ping, PING_MS);
+  }
+
+  /**
+   * Give up on a socket that stopped answering.
+   *
+   * This exists because `onclose` is not reliable. A socket can go half-open — laptop sleep, a
+   * wifi handover, a NAT table dropping the flow — with no FIN and no close frame, and the page
+   * is never told. Before this, that state was indistinguishable from a working connection:
+   * `connected` stayed true, the reconnect never fired, the status line still said "Connected"
+   * and the last RTT sat frozen on screen while nothing moved. Silence looked like health.
+   *
+   * It reports and retries by hand rather than calling `ws.close()` and waiting for `onclose`,
+   * because a socket this far gone may never fire that event either — waiting on it is the
+   * failure being fixed.
+   */
+  private failDead(): void {
+    const ws = this.ws;
+    if (ws) {
+      // Ours to report now; the handler would say the same thing again when it eventually fires.
+      ws.onclose = null;
+      ws.onmessage = null;
+      ws.onerror = () => {};
+      try { ws.close(4000); } catch { /* already gone — nothing to close */ }
+      this.ws = null;
+    }
+    this.clearStable();
+    this.stopPinging();
+    this.peers.clear();
+    this.lastSent = { x: -1, y: -1, a: -1 };
+    this.h.onClose?.(`dropped (silent — no pong in ${DEAD_MS / 1000}s)`);
+    if (this.want) this.scheduleRetry();
   }
 
   private stopPinging(): void {

@@ -82,7 +82,7 @@ handful of files that are shared.
    issue is the only channel that reaches the other session, since neither can see the other's
    conversation.
 
-## State as of 2026-09-04
+## State as of 2026-09-14
 
 - **This repo is public** (`matewishkey/mwk-ghost-pointer`). Nothing secret has ever been in
   it — history was scanned before publishing. Keep it that way: no account ids, no tokens, no
@@ -108,6 +108,13 @@ handful of files that are shared.
   and, importantly, the one theory that was *disproven* are in `app/CLAUDE.md`. Read it before
   re-investigating lag: webview throttling under occlusion is measurably not the cause, and the
   remaining lag has no identified root cause.
+- **A socket could die without `onclose`, and until v0.7.0 nothing noticed** — found after the
+  13 Sep client test, where the host logged two healthy hours while the guest kept dropping.
+  `onclose` was the only drop signal, so a half-open socket left the app reading "Connected"
+  with a frozen RTT and no reconnect. There is now a pong watchdog, and peer join/leave is
+  logged at last. Details and the reproduction in `app/CLAUDE.md`.
+- **A two-machine bug is still only half-visible: the guest's log never leaves their machine.**
+  Ask the guest to press **Copy diagnostics** before they quit — issue #8.
 - **Windows: built, published, withdrawn** (31 Aug). It locked up a real machine — the overlay
   covered the screen and ate every click. Diagnosis and the unverified fix are in
   `app/CLAUDE.md` § Windows; read it before touching that path. macOS is unaffected and is what

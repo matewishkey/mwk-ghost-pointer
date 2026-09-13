@@ -229,6 +229,9 @@ const relay = new Relay({
   onRtt: (ms) => { lastRtt = ms; el.rtt.textContent = `${ms} ms`; },
   onClose: (why) => {
     logLine(`socket closed: ${why}`, why === "disconnected" ? "info" : "warn");
+    // The room is gone with the socket, so the next join is a genuine arrival and has to be
+    // logged as one — not silently swallowed because the same peer was here before the drop.
+    seenPeers.clear();
     connected = false;
     setStatus(why === "disconnected" ? "" : "bad", why[0].toUpperCase() + why.slice(1));
     void teardown();
@@ -243,7 +246,32 @@ const relay = new Relay({
   },
 });
 
+/** Who was in the room at the last `onPeers`, so the next one can log the difference. */
+const seenPeers = new Map<string, string>();
+
+/**
+ * Record arrivals and departures in the log.
+ *
+ * `onPeers` fires on join, on leave *and* on every geometry update, so this reports the change
+ * rather than the call. It exists because a session log could not previously answer the first
+ * question anyone asks about a call that fell over — did the other side ever arrive, and when
+ * did they go? The 13 Sep client test logged two hours of healthy heartbeats and not one line
+ * about the guest, which is the half that was actually broken.
+ */
+function logPeerChanges(peers: Peer[]): void {
+  const now = new Map(peers.map((p) => [p.id, p.name ? `${p.role} "${p.name}"` : p.role]));
+  for (const [id, who] of now) {
+    if (!seenPeers.has(id)) logLine(`peer joined: ${who} — ${now.size} other(s) in room`);
+  }
+  for (const [id, who] of seenPeers) {
+    if (!now.has(id)) logLine(`peer left: ${who} — ${now.size} other(s) in room`);
+  }
+  seenPeers.clear();
+  for (const [id, who] of now) seenPeers.set(id, who);
+}
+
 function onPeers(peers: Peer[]): void {
+  logPeerChanges(peers);
   const others = peers.filter((p) => p.role !== role);
   if (role === "point") {
     const viewer = peers.find((p) => p.role === "view" && p.geo);

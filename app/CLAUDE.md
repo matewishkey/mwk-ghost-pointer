@@ -200,6 +200,41 @@ and the guest's escape hotkey into the same log the backend uses, plus a 5s hear
 message rate and RTT — and the *spacing* of those lines is itself the throttling measurement, so
 the next bad session answers this question without a rebuild.
 
+## The 13 Sep test — a socket can die without `onclose`, and the log was blind to the guest
+
+Second client test, same complaint as 3 Sep: disconnecting, unreliable. The instrumentation added
+after 3 Sep captured the half of the call that was never broken, and two hours of host log said
+nothing was wrong. Both gaps are closed in v0.7.0.
+
+**`onclose` is not a reliable drop signal, and the app treated it as the only one.** A socket can
+go half-open — laptop sleep, wifi handover, a NAT table dropping the flow — with no FIN and no
+close frame, and the page is never told. In that state `connected` stayed true, the reconnect
+never fired, the status line still read "Connected" and the last RTT sat frozen on screen while
+nothing moved. **Silence was indistinguishable from health**, which is exactly what "it just
+stopped working" looks like from the outside.
+
+Reproduced deterministically, not theorised: drive `Relay` with a `WebSocket` stub that stays
+`OPEN`, accepts sends and never answers. On v0.6.0 that produces **zero** events — no close, no
+retry, nothing logged. `protocol.ts` now keeps `lastPongAt`, and the ping timer checks it before
+sending: no pong for `DEAD_MS` and `failDead()` reports the drop and hands over to the existing
+backoff. It reports by hand rather than calling `ws.close()` and waiting for `onclose`, because a
+socket that far gone may never fire that event either — waiting on it is the bug.
+
+The watchdog runs inside the ping timer *on purpose*. When the timer is suspended (machine
+asleep, webview throttled while occluded) the first tick after waking sees the whole gap at once
+and reconnects. A false positive costs one reconnect; a false negative costs the session.
+
+**Peer join and leave were never logged.** `onPeers` fires on join, leave *and* every geometry
+update, and only ever updated on-screen text. So the log could not answer the first question
+anyone asks about a call that fell over — did the other side ever arrive, and when did they go?
+The 13 Sep log has 344 lines, one connect, and not a single line about the guest. `logPeerChanges`
+now reports the difference between calls, and `onClose` clears the set so a post-drop rejoin reads
+as a genuine arrival.
+
+**The guest's log is still on the guest's machine and nothing brings it here.** That is the
+remaining hole in diagnosing a two-machine bug, and it is unsolved — see issue #8. Until then,
+diagnosing a bad call means asking the guest to press **Copy diagnostics** before they quit.
+
 ## Windows — START HERE if you are on the Windows box (1 Sep 2026)
 
 **A Windows build was published on 31 Aug and it locked up a real machine.** Connected as a
