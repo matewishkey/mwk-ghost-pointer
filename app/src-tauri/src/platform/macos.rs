@@ -12,6 +12,7 @@ use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 // core-graphics 0.24 exposes only `new`/`type_id` on CGEventSource, so the modifier-state call
 // is declared here directly. It is a plain C function taking the state id — not a method on a
@@ -170,5 +171,52 @@ impl Platform for Impl {
                 }
             })
             .collect()
+    }
+
+    fn set_session_active(active: bool) {
+        // The documented way to opt out of App Nap: an NSProcessInfo activity assertion held
+        // for as long as the work lasts. No TCC grant, no dialog, nothing for a user to accept
+        // — it is a statement about this process, not a request for access to anything.
+        static TOKEN: Mutex<Option<usize>> = Mutex::new(None);
+        let mut held = TOKEN.lock().unwrap();
+        unsafe {
+            let pi: *mut AnyObject = msg_send![class!(NSProcessInfo), processInfo];
+            if active {
+                if held.is_some() {
+                    return; // already asserted — the trait promises this is a no-op
+                }
+                let reason: *mut AnyObject = msg_send![
+                    class!(NSString),
+                    stringWithUTF8String: c"Ghost Pointer session is live".as_ptr()
+                ];
+                // NSActivityUserInitiatedAllowingIdleSystemSleep, spelled out from
+                // NSProcessInfo.h rather than copied from memory:
+                //   NSActivityUserInitiated = 0x00FFFFFF | NSActivityIdleSystemSleepDisabled
+                //   ...AllowingIdleSystemSleep = that, with the same bit cleared again
+                // Keeping this app awake is the point. Keeping the whole machine awake is not:
+                // if someone walks away, their Mac is entitled to sleep, and holding it up
+                // would be a battery complaint we would deserve.
+                const IDLE_SYSTEM_SLEEP_DISABLED: u64 = 1 << 20;
+                const OPTS: u64 = (0x00FF_FFFF | IDLE_SYSTEM_SLEEP_DISABLED) & !IDLE_SYSTEM_SLEEP_DISABLED;
+                let token: *mut AnyObject = msg_send![pi, beginActivityWithOptions: OPTS, reason: reason];
+                if token.is_null() {
+                    log::warn!("App Nap opt-out refused — a long session may stall while occluded");
+                    return;
+                }
+                // The token is autoreleased; it has to outlive this pool or endActivity: later
+                // is handed a dead object.
+                // `retain` returns id, not void. Declaring the wrong return type here is what
+                // crashed `displays()` on 3 Sep — objc2 checks the encoding and panics rather
+                // than letting it slide.
+                let _: *mut AnyObject = msg_send![token, retain];
+                *held = Some(token as usize);
+                log::info!("session activity assertion held (App Nap disabled)");
+            } else if let Some(t) = held.take() {
+                let token = t as *mut AnyObject;
+                let _: () = msg_send![pi, endActivity: token];
+                let _: () = msg_send![token, release];
+                log::info!("session activity assertion released");
+            }
+        }
     }
 }

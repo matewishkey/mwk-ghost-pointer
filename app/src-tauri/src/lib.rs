@@ -146,6 +146,15 @@ fn stop_cursor_stream(stream: tauri::State<'_, Stream>) {
     stream.running.store(false, Ordering::SeqCst);
 }
 
+/// Hold or release the OS-level "this process is busy" assertion for a live session.
+///
+/// Separate from `start_cursor_stream` on purpose: that is the pointing side only, and the
+/// guest needs this just as much. A suspended guest stops drawing.
+#[tauri::command]
+fn set_session_active(active: bool) {
+    platform::Impl::set_session_active(active);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Windows
 // ---------------------------------------------------------------------------------------------
@@ -747,6 +756,7 @@ pub fn run() {
             displays,
             start_cursor_stream,
             stop_cursor_stream,
+            set_session_active,
             open_overlay,
             close_overlay,
             open_aim,

@@ -124,6 +124,26 @@ pub trait Platform {
     /// than from Win32 directly. The trait widened rather than the app forking — which is the
     /// rule this module exists to enforce. macOS ignores it.
     fn displays(app: &tauri::AppHandle) -> Vec<Display>;
+
+    /// Tell the OS a session is live, so it stops treating this process as idle.
+    ///
+    /// **This is not a nicety, it is the difference between working and not.** Measured on
+    /// 14 Sep during a real client call: the control window's 5-second heartbeat stopped for
+    /// 7.8, 13.7 and 35 minutes at a stretch while the machine itself stayed wide awake (system
+    /// and display sleep were both actively prevented throughout — `pmset` confirmed it). The
+    /// webview had been suspended because the app looked idle: its window was behind the
+    /// guest's video call and the user was not touching it.
+    ///
+    /// That is fatal here and nowhere else, because **the websocket lives in the webview**. The
+    /// cursor poll is a native thread and keeps running, so the app looks alive from the inside
+    /// while nothing at all reaches the other side.
+    ///
+    /// Called on connect and on disconnect, for *both* roles — the guest suspends just as
+    /// readily, and a suspended guest stops drawing.
+    ///
+    /// Implementations must be idempotent: asking twice for the same state is a no-op, not a
+    /// second assertion to balance.
+    fn set_session_active(active: bool);
 }
 
 #[cfg(target_os = "macos")]

@@ -199,6 +199,10 @@ function logLine(msg: string, level: "info" | "warn" | "error" = "info"): void {
 const relay = new Relay({
   onOpen: (_you, peers) => {
     connected = true;
+    // Ask the OS to stop treating this process as idle. Without it macOS suspends the webview
+    // once the window goes behind the video call, and since the socket lives here, the session
+    // silently stops — measured at 7.8, 13.7 and 35 minutes of dead air on 14 Sep.
+    void invoke("set_session_active", { active: true });
     logLine(`connected as ${role}, ${peers.length} peer(s) already in the room`);
     startHeartbeat();
     setStatus("on", role === "point" ? "Connected — waiting for them" : "Connected");
@@ -232,6 +236,9 @@ const relay = new Relay({
     // The room is gone with the socket, so the next join is a genuine arrival and has to be
     // logged as one — not silently swallowed because the same peer was here before the drop.
     seenPeers.clear();
+    // Deliberately NOT released on a drop we intend to recover from: being suspended is what
+    // would stop the retry running at all. Only an explicit disconnect gives it up.
+    if (why === "disconnected") void invoke("set_session_active", { active: false });
     connected = false;
     setStatus(why === "disconnected" ? "" : "bad", why[0].toUpperCase() + why.slice(1));
     void teardown();

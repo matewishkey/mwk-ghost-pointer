@@ -101,4 +101,14 @@ impl Platform for Impl {
             })
             .collect()
     }
+
+    fn set_session_active(_active: bool) {
+        // Not implemented, and deliberately not guessed at. The Windows analogue is
+        // `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)`, but whether Windows
+        // suspends a background WebView2 the way macOS App Naps an occluded WKWebView has not
+        // been measured on real hardware, and this file's history is a warning about shipping
+        // Windows behaviour that was reasoned about rather than tested. Whoever picks Windows
+        // back up: measure the heartbeat spacing with the window buried, the same way the macOS
+        // case was caught, before writing anything here.
+    }
 }
